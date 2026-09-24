@@ -1,4 +1,4 @@
-"""`factory run | resume | show | inbox | answer | ui`: the human entry points."""
+"""`factory run | submit | worker | resume | show | inbox | answer | ui`: the entry points."""
 
 import logging
 from pathlib import Path
@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from factory import dispatch
 from factory.config import Config
 from factory.inbox import Inbox
 from factory.intake import intake
@@ -38,6 +39,30 @@ def run(
     config.human.spec |= review_spec
     config.human.code |= review_code
     _execute(Run.start(intake(source, cwd=repo), repo), config)
+
+
+@app.command()
+def submit(
+    source: Annotated[str, typer.Argument(help="Task text, a markdown file, #issue or an issue url.")],
+    label: Annotated[
+        list[str] | None, typer.Option(help="Task label. dispatch.labels in factory.toml maps labels to a lane.")
+    ] = None,
+    repo: Repo = Path(),
+) -> None:
+    """Hand a task to its lane, local or sqs, and return straight away."""
+    repo = repo.resolve()
+    task = intake(source, cwd=repo)
+    task.labels += label or []
+    lane, ref = dispatch.dispatch(task, repo, Config.load(repo))
+    typer.echo(f"{lane}: {ref}")
+
+
+@app.command()
+def worker(repo: Repo = Path(), runtime: Runtime = None) -> None:
+    """Run tasks from the SQS queue, one at a time, until stopped."""
+    repo = repo.resolve()
+    _observe()
+    dispatch.work(repo, _config(repo, inbox=True, runtime=runtime))
 
 
 @app.command()
@@ -105,7 +130,7 @@ def ui(
     host: Annotated[str, typer.Option(help="Use 0.0.0.0 inside a container.")] = "127.0.0.1",
     port: int = 8765,
 ) -> None:
-    """Serve the dashboard: watch runs, answer questions, resume escalations."""
+    """Serve the dashboard and the REST intake (POST /api/tasks, /api/hooks/{github,linear,jira})."""
     from factory.ui.server import PAGES, serve
 
     server = serve(repo.resolve(), host, port)
@@ -135,8 +160,7 @@ def _load(repo: Path, run_id: str) -> Run:
 
 
 def _execute(run: Run, config: Config) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
-    _instrument()
+    _observe()
     typer.echo(f"run {run.id}")
     run = Pipeline(run, config).execute()
     typer.echo(f"\n{run.status}: factory show {run.id}")
@@ -144,8 +168,9 @@ def _execute(run: Run, config: Config) -> None:
         raise typer.Exit(1)
 
 
-def _instrument() -> None:
-    """Trace every agent call in Logfire when it is installed and configured."""
+def _observe() -> None:
+    """Log progress to the terminal, and trace every agent call in Logfire when it is installed and configured."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
     try:
         import logfire
     except ImportError:

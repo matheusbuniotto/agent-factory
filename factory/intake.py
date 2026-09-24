@@ -1,4 +1,4 @@
-"""Step 0: turn text, a markdown file or a GitHub issue into a Task."""
+"""Step 0: turn text, a markdown file or a GitHub issue into a Task. Webhooks go through `factory.hooks`."""
 
 import json
 import re
@@ -18,7 +18,7 @@ def intake(source: str, cwd: Path = Path()) -> Task:
         return _issue(source, cwd)
     if (path := Path(source)).is_file():
         return _file(path)
-    return Task(title=source.splitlines()[0][:72], body=source)
+    return Task(title=source.splitlines()[0].lstrip("# ")[:72], body=source)
 
 
 def _issue(ref: str, cwd: Path) -> Task:

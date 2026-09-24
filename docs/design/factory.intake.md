@@ -24,7 +24,11 @@ Turn whatever the human typed into a `Task`.
    → body = the file contents, title = the first `# ` heading or the file stem,
    `source=file`, `url` = the path.
 3. **Text**: anything else.
-   → body = `source`, title = the first line cut to 72 characters, `source=text`.
+   → body = `source`, title = the first line without a leading `# `, cut to 72
+   characters, `source=text`.
+
+Tickets from Linear and Jira arrive as webhooks, not through `intake`; see
+[factory.dispatch](factory.dispatch.md).
 
 ## Worked examples
 

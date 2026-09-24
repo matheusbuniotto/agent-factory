@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 class Source(StrEnum):
     TEXT = "text"
     FILE = "file"
-    ISSUE = "issue"
+    ISSUE = "issue"  # GitHub
+    LINEAR = "linear"
+    JIRA = "jira"
 
 
 class Task(BaseModel):
@@ -18,6 +20,7 @@ class Task(BaseModel):
     body: str
     source: Source = Source.TEXT
     url: str | None = None
+    labels: list[str] = []
 
     def to_markdown(self) -> str:
         origin = f"\n\nSource: {self.url}" if self.url else ""

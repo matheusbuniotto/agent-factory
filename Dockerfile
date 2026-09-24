@@ -9,7 +9,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY factory ./factory
-RUN uv sync --frozen --no-dev --extra logfire
+RUN uv sync --frozen --no-dev --extra logfire --extra aws
 ENV PATH="/app/.venv/bin:$PATH"
 
 RUN useradd --create-home factory \

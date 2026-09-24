@@ -3,7 +3,7 @@ id: factory.config
 title: Team configuration
 version: 1
 depends_on: []
-provides: [Config, Endpoint, Models, Human, Limits]
+provides: [Config, Endpoint, Models, Human, Limits, Dispatch]
 generated_artifact: factory/config.py
 status: accepted
 ---
@@ -51,6 +51,15 @@ review_rounds = 1        # process.md step 6
 searches      = 8        # process.md step 2; 0 disables web search
 compact_at    = 170_000  # tokens
 requests      = 200      # model requests per agent call, a spend guard
+
+[dispatch]       # where `factory submit`, POST /api/tasks and webhooks run a task
+default   = "local"      # or "sqs"
+trigger   = "factory"    # webhooks ignore tickets without this label
+queue_url = ""           # the sqs lane; or $FACTORY_QUEUE_URL
+
+[dispatch.labels]        # the first task label found here picks the lane
+"factory:queue" = "sqs"
+"factory:local" = "local"
 ```
 
 ## Semantic contract
@@ -73,5 +82,6 @@ requests      = 200      # model requests per agent call, a spend guard
 
 ## Must not infer
 
-- Don't read environment variables for config. The only exception is the API key an endpoint names in `api_key_env`.
+- Don't read environment variables for config. The exceptions are the API key an endpoint names in `api_key_env`
+  and `$FACTORY_QUEUE_URL`, read by `factory.dispatch` when `queue_url` is empty.
 - Never put API keys in `factory.toml`.

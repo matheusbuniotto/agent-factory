@@ -1,20 +1,27 @@
-"""`factory ui`: the dashboard over `.factory/runs`. Standard library only.
+"""`factory ui`: the dashboard over `.factory/runs`, and the REST intake. Standard library only.
 
-Reads are open. The two writes, answering a question and resuming a run, need
-an `X-Factory` header, which a page on another site cannot send without a CORS
-preflight that this server never approves.
+Reads are open. Writes (answer, resume, submit a task) need an `X-Factory`
+header, which a page on another site cannot send without a CORS preflight that
+this server never approves. Webhooks can't set headers, so they carry
+`?token=` matching `FACTORY_TOKEN` instead, and are off while it is unset.
 """
 
+import hmac
 import json
-import subprocess
-import sys
+import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
+from pydantic import BaseModel, ValidationError
 from pydantic_core import to_json
 
+from factory import dispatch, hooks
+from factory.config import Config
+from factory.contracts import Task
 from factory.inbox import Inbox
+from factory.intake import intake
 from factory.run import STEPS, Event, Run, Status, runs_dir
 
 STATIC = Path(__file__).parent / "static"
@@ -77,14 +84,24 @@ def detail(run: Run) -> dict:
     return summary(run) | {"events": run.events(), "artifacts": artifacts}
 
 
+class Submission(BaseModel):
+    """The body of `POST /api/tasks`."""
+
+    task: str
+    labels: list[str] = []
+
+
 def resume(run: Run, step: str, guidance: str | None) -> None:
     """Continue the run in the background, answering through the inbox."""
-    command = [sys.executable, "-m", "factory", "resume", run.id, "--repo", str(run.repo), "--from", step, "--inbox"]
-    if guidance:
-        command += ["--guidance", guidance]
-    with (run.dir / "resume.log").open("a") as log:
-        subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    dispatch.launch(run, step, guidance)
     run.log(f"resume requested from the dashboard at {step}", step=step)
+
+
+def authorised(query: str) -> bool:
+    """Webhooks are on only when FACTORY_TOKEN is set, and must present it as `?token=`."""
+    expected = os.environ.get("FACTORY_TOKEN")
+    token = parse_qs(query).get("token", [""])[0]
+    return bool(expected) and hmac.compare_digest(token, expected)
 
 
 def serve(repo: Path, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
@@ -112,10 +129,23 @@ def serve(repo: Path, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTT
                     self.send_error(HTTPStatus.NOT_FOUND)
 
         def do_POST(self) -> None:
-            if not self.headers.get("X-Factory"):
-                return self.send_error(HTTPStatus.FORBIDDEN, "missing X-Factory header")
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            except json.JSONDecodeError:
+                return self.send_error(HTTPStatus.BAD_REQUEST, "body is not JSON")
             match self._route():
+                case ["api", "hooks", provider] if provider in hooks.PARSERS:
+                    self._hook(hooks.PARSERS[provider], body)
+                case _ if not self.headers.get("X-Factory"):
+                    self.send_error(HTTPStatus.FORBIDDEN, "missing X-Factory header")
+                case ["api", "tasks"]:
+                    try:
+                        submission = Submission.model_validate(body)
+                        task = intake(submission.task, cwd=repo)
+                    except (ValidationError, ValueError) as error:
+                        return self.send_error(HTTPStatus.BAD_REQUEST, str(error).splitlines()[0])
+                    task.labels = submission.labels
+                    self._submit(task)
                 case ["api", "runs", run_id, "answer"] if known(run_id):
                     run = Run.load(repo, run_id)
                     try:
@@ -133,8 +163,24 @@ def serve(repo: Path, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTT
                 case _:
                     self.send_error(HTTPStatus.NOT_FOUND)
 
+        def _hook(self, parse: hooks.Parser, payload: dict) -> None:
+            if not authorised(urlsplit(self.path).query):
+                return self.send_error(HTTPStatus.FORBIDDEN, "bad or missing ?token=")
+            trigger = Config.load(repo).dispatch.trigger
+            if task := parse(payload, trigger):
+                self._submit(task)
+            else:
+                self._json({"ignored": f"not a new ticket labelled {trigger!r}"})
+
+        def _submit(self, task: Task) -> None:
+            try:
+                lane, ref = dispatch.dispatch(task, repo, Config.load(repo))
+            except (ValueError, RuntimeError) as error:
+                return self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, str(error))
+            self._json({"lane": lane, "id": ref, "title": task.title}, HTTPStatus.ACCEPTED)
+
         def _route(self) -> list[str]:
-            return self.path.split("?")[0].strip("/").split("/")
+            return urlsplit(self.path).path.strip("/").split("/")
 
         def _file(self, path: Path) -> None:
             self._send(path.read_bytes(), CONTENT_TYPES.get(path.suffix, "text/plain"))

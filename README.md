@@ -58,6 +58,38 @@ git worktree `<repo>/.factory/worktrees/<id>` on branch `factory/<id>`.
 With `pip install '.[logfire]'` and `LOGFIRE_TOKEN` set, every agent call is
 traced in the Logfire UI.
 
+### From anywhere: local or SQS
+
+`factory submit` returns straight away. The task's labels pick its lane: `local`
+runs it in the background, and `sqs` queues it for `factory worker`
+(`pip install '.[aws]'`).
+
+```toml
+[dispatch]
+default   = "local"
+queue_url = "https://sqs.us-east-1.amazonaws.com/123/factory"   # or $FACTORY_QUEUE_URL
+
+[dispatch.labels]
+"factory:queue" = "sqs"
+```
+
+```bash
+factory submit docs/task.md --label factory:queue   # → sqs: <message id>
+factory worker                                      # on ECS/EC2: runs queued tasks
+```
+
+`factory ui` also serves a REST intake:
+
+```bash
+curl -H 'X-Factory: 1' -d '{"task": "# Fix login\n\nIt breaks.", "labels": ["bug"]}' \
+  http://127.0.0.1:8765/api/tasks
+```
+
+To use webhooks, set `FACTORY_TOKEN` and point GitHub, Linear or Jira at
+`https://<host>/api/hooks/{github,linear,jira}?token=<FACTORY_TOKEN>`. A ticket
+starts a run when it is created with the `factory` label (`dispatch.trigger`),
+or when that label is added. See [factory.dispatch](docs/design/factory.dispatch.md).
+
 ## Customise
 
 Add a `factory.toml` to the target repo (see

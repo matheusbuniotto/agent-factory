@@ -8,10 +8,10 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from factory import dispatch
 from factory.contracts import Task
 from factory.inbox import Inbox, Kind
 from factory.run import Run, Status, Usage
-from factory.ui import server as ui
 from factory.ui.server import PAGES, serve
 
 
@@ -111,7 +111,7 @@ def test_escalations_are_needs_and_resume_in_the_background(server, monkeypatch:
     assert (need["kind"], need["step"], need["text"]) == ("escalation", "prepare", "hydration failed")
 
     started = []
-    monkeypatch.setattr(ui.subprocess, "Popen", lambda command, **kwargs: started.append(command))
+    monkeypatch.setattr(dispatch.subprocess, "Popen", lambda command, **kwargs: started.append(command))
     assert post(f"{base}/api/runs/{run.id}/resume", {"guidance": "proxy is fixed"}) == {
         "resumed": run.id,
         "from": "prepare",

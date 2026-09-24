@@ -17,6 +17,16 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest -q
 
+  proofs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proofs
+    steps:
+      - uses: actions/checkout@v5
+      - run: curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+      - run: ~/.elan/bin/lean Factory.lean   # the version comes from lean-toolchain
+
   evals:
     # Real models, so only on main or by hand, and only when a key is configured.
     needs: test

@@ -46,6 +46,22 @@ class Limits(Settings):
     requests: int = 200
 
 
+Lane = Literal["local", "sqs"]
+
+
+class Dispatch(Settings):
+    """Where submitted tasks run: a background process here, or an SQS queue for `factory worker`."""
+
+    default: Lane = "local"
+    labels: dict[str, Lane] = {}  # the first task label found here picks the lane
+    trigger: str = "factory"  # webhooks ignore tickets without this label
+    queue_url: str | None = None  # or FACTORY_QUEUE_URL
+
+    def lane(self, labels: list[str]) -> Lane:
+        """Proved in `proofs/Factory.lean`: the default unless a task label maps to a lane; the first one wins."""
+        return next((self.labels[label] for label in labels if label in self.labels), self.default)
+
+
 class Config(Settings):
     runtime: Literal["pydantic-ai", "claude"] = "pydantic-ai"  # claude = Claude Agent SDK on your subscription
     checks: list[str] = []
@@ -56,6 +72,7 @@ class Config(Settings):
     models: Models = Models()
     human: Human = Human()
     limits: Limits = Limits()
+    dispatch: Dispatch = Dispatch()
 
     @classmethod
     def load(cls, repo: Path) -> "Config":
