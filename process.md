@@ -5,7 +5,7 @@
 1.1 Prep enviroment = hydration if need and pre-commit setup, sandboxing, worktres, resolve conflicts
 2.1 [if need] Grilling alignment (opnional for non-autonomus one)
 2.1 Discovery External research docs, examples, best pratices, recent docs/and stacks. Limit to at most 8 searchs
-3. [if task is so simple = can be just a short doc combining both] Agent PM  BDD document + Design-domain docs (similar with @example-design-framework.md) from https://arxiv.org/html/2609.05364v1
+3. [if task is so simple = can be just a short doc combining both] Agent PM  BDD document + Design-domain docs (similar with @design-framework.md) from https://arxiv.org/html/2609.05364v1
 3.1 Check determinist if we hvae at least the minimoum
 4. Implementation agent w/ skills avaliable consuming the docs 
 5. Linter/Checks/Precommits -> retry 2x if fail return to implementation with feedback, as if where github review. IF NOT pass, scalate to human instead of retry 3x
@@ -50,6 +50,7 @@
 - Be cost effective
 
 
-
+## End goal 
+Goal: is an agentic factory that can be autonomous or semi-autonmous runned safely on cloud customized by teams to adjust to their tasks and context with skills / capabilities .
 
 
