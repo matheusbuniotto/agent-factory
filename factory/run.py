@@ -5,6 +5,7 @@ import secrets
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -21,13 +22,27 @@ class Status(StrEnum):
     ESCALATED = "escalated"
 
 
+class Usage(BaseModel):
+    """Tokens of one model turn."""
+
+    context: int  # what the model read: prompt, history and tool results
+    output: int
+
+    @property
+    def total(self) -> int:
+        return self.context + self.output
+
+
 class Event(BaseModel):
-    """One line of a run's activity log (`events.jsonl`)."""
+    """One line of a run's activity log (`events.jsonl`). Model turns also carry their agent, tools and usage."""
 
     at: datetime = Field(default_factory=lambda: _now())
     step: str | None = None
     level: str = "info"
     message: str
+    agent: str | None = None
+    tools: list[str] = []
+    usage: Usage | None = None
 
 
 class Step(BaseModel):
@@ -109,9 +124,9 @@ class Run(BaseModel):
     def save(self) -> None:
         self.write("run.json", self.model_dump_json(indent=2))
 
-    def log(self, message: str, level: str = "info", step: str | None = None) -> Event:
+    def log(self, message: str, level: str = "info", step: str | None = None, **turn: Any) -> Event:
         """Append to the activity log, tagged with `step` or else the step that is running."""
-        event = Event(step=step or self.running, level=level, message=message)
+        event = Event(step=step or self.running, level=level, message=message, **turn)
         self.dir.mkdir(parents=True, exist_ok=True)
         with (self.dir / "events.jsonl").open("a") as events:
             events.write(event.model_dump_json() + "\n")

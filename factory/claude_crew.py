@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     HookMatcher,
     ResultMessage,
+    ToolUseBlock,
     create_sdk_mcp_server,
     tool,
 )
@@ -20,8 +22,9 @@ from pydantic import BaseModel
 
 from factory.config import Config
 from factory.contracts import Review, Spec, Task
-from factory.crew import ASSUME, GRILL, IMPLEMENTER, MAX_DIFF, PLANNER, REVIEWER, SCRIBE
+from factory.crew import ASSUME, GRILL, IMPLEMENTER, MAX_DIFF, PLANNER, REVIEWER, SCRIBE, Report, tool_label
 from factory.human import terminal
+from factory.run import Usage
 
 READ = ["Read", "Glob", "Grep"]
 CODE = [*READ, "Write", "Edit", "Bash"]
@@ -29,10 +32,17 @@ ASK_HUMAN = "mcp__factory__ask_human"
 
 
 class ClaudeCrew:
-    def __init__(self, config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal):
+    def __init__(
+        self,
+        config: Config,
+        workspace: Path,
+        ask: Callable[[str], str | None] = terminal,
+        report: Report | None = None,
+    ):
         self.config = config
         self.workspace = workspace
         self.ask = ask
+        self.report = report
         self.models = {role: _claude_model(name) for role, name in config.models}
         self.plugin = _skills_plugin(config.skills)
         weakref.finalize(self, shutil.rmtree, self.plugin, ignore_errors=True)
@@ -44,7 +54,7 @@ class ClaudeCrew:
             prompt = f"Revise the spec:\n\n{feedback}"
         else:
             prompt = task.to_markdown() + (f"\n\n## Guidance from a human\n\n{feedback}" if feedback else "")
-        result = self._run(prompt, self._planner(), resume=self._plan_session)
+        result = self._run("planner", prompt, self._planner(), resume=self._plan_session)
         self._plan_session = result.session_id
         return _parse(Spec, result)
 
@@ -53,19 +63,20 @@ class ClaudeCrew:
             prompt = feedback or "Continue."
         else:  # a fresh conversation, e.g. after a resume, must see the spec
             prompt = spec.to_markdown() + (f"\n\n## Feedback\n\n{feedback}" if feedback else "")
-        result = self._run(prompt, self._coder("implementer", IMPLEMENTER), resume=self._implement_session)
+        options = self._coder("implementer", IMPLEMENTER)
+        result = self._run("implementer", prompt, options, resume=self._implement_session)
         self._implement_session = result.session_id
         return result.result or ""
 
     def review(self, spec: Spec, diff: str) -> Review:
         prompt = f"{spec.to_markdown()}\n\n# Diff\n\n```diff\n{diff[:MAX_DIFF]}\n```"
         options = self._coder("reviewer", REVIEWER, output_type=Review)
-        return _parse(Review, self._run(prompt, options))
+        return _parse(Review, self._run("reviewer", prompt, options))
 
     def explain(self, task: Task, spec: Spec, diff: str, review: Review | None) -> str:
         notes = review.to_markdown() if review else ""
         prompt = f"{task.to_markdown()}\n{spec.to_markdown()}\n{notes}\n```diff\n{diff[:MAX_DIFF]}\n```"
-        return self._run(prompt, self._options("scribe", SCRIBE, tools=[])).result or ""
+        return self._run("scribe", prompt, self._options("scribe", SCRIBE, tools=[])).result or ""
 
     def _planner(self) -> ClaudeAgentOptions:
         grill = self.config.human.grill
@@ -115,18 +126,48 @@ class ClaudeCrew:
 
         return ask_human
 
-    def _run(self, prompt: str, options: ClaudeAgentOptions, resume: str | None = None) -> ResultMessage:
+    def _run(self, agent: str, prompt: str, options: ClaudeAgentOptions, resume: str | None = None) -> ResultMessage:
         options.resume = resume
-        return asyncio.run(_query(prompt, options))
+        turns = _Turns(lambda tools, usage: self.report and self.report(agent, tools, usage))
+        return asyncio.run(_query(prompt, options, turns))
 
 
-async def _query(prompt: str, options: ClaudeAgentOptions) -> ResultMessage:
+class _Turns:
+    """Claude Code streams one message per content block; this joins them back into model turns and reports each."""
+
+    def __init__(self, report: Callable[[list[str], Usage], None]):
+        self.report = report
+        self.id: str | None = None
+        self.tools: list[str] = []
+        self.usage: dict[str, Any] | None = None
+
+    def add(self, message: AssistantMessage) -> None:
+        if message.message_id is None or message.message_id != self.id:
+            self.flush()
+            self.id = message.message_id
+        self.tools += [
+            tool_label(block.name, block.input) for block in message.content if isinstance(block, ToolUseBlock)
+        ]
+        self.usage = message.usage or self.usage
+
+    def flush(self) -> None:
+        if self.usage:
+            read = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+            context = sum(self.usage.get(key) or 0 for key in read)
+            self.report(self.tools, Usage(context=context, output=self.usage.get("output_tokens") or 0))
+        self.id, self.tools, self.usage = None, [], None
+
+
+async def _query(prompt: str, options: ClaudeAgentOptions, turns: _Turns) -> ResultMessage:
     result = None
     async with ClaudeSDKClient(options) as client:
         await client.query(prompt)
         async for message in client.receive_response():
-            if isinstance(message, ResultMessage):
+            if isinstance(message, AssistantMessage) and not message.parent_tool_use_id:
+                turns.add(message)
+            elif isinstance(message, ResultMessage):
                 result = message
+    turns.flush()
     if result is None or result.is_error:
         raise RuntimeError(f"Claude agent failed: {result and (result.errors or result.result or result.subtype)}")
     return result

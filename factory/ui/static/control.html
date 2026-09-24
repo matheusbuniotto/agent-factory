@@ -138,6 +138,30 @@
   .doc pre code { background: none; padding: 0; }
   .empty { color: var(--faint); display: grid; place-items: center; min-height: 120px; text-align: center; padding: 20px; }
 
+  /* model turns + tokens */
+  .ag { color: var(--c); margin-right: 8px; }
+  .tool { color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-right: 4px; white-space: nowrap; }
+  .ctx { float: right; color: var(--faint); margin-left: 8px; }
+  .usage { margin: 0 22px 14px; }
+  .usage-body { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; padding: 12px 14px; }
+  .plot { position: relative; height: 150px; margin: 0 0 18px 40px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: crosshair; }
+  .plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .plot polyline { fill: none; stroke: var(--c); stroke-width: 1.8; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .plot polyline.total { stroke: var(--text); stroke-dasharray: 4 3; }
+  .plot .y { position: absolute; left: -44px; width: 38px; text-align: right; transform: translateY(-50%); font: 10.5px var(--mono); color: var(--faint); }
+  .plot .x { position: absolute; bottom: -18px; transform: translateX(-50%); font: 10.5px var(--mono); color: var(--faint); }
+  .plot .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--panel-2); }
+  .plot .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--faint); display: none; }
+  .tops { font-size: 12px; } .tops h4 { margin: 0 0 8px; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .top { display: grid; grid-template-columns: 90px minmax(0, 1fr) 34px; gap: 8px; align-items: center; margin-bottom: 5px; font-family: var(--mono); }
+  .top .bar { height: 6px; border-radius: 3px; background: var(--blue); opacity: .75; }
+  .top .n { text-align: right; color: var(--muted); }
+  .spend { display: grid; grid-template-columns: 300px minmax(0, 1fr) 150px; }
+  .spend > div { height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--panel-2); min-width: 0; cursor: pointer; }
+  .spend .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spend .stack { display: flex; height: 12px; border-radius: 3px; overflow: hidden; background: var(--panel-2); width: 100%; }
+  .spend .d { font: 11.5px var(--mono); color: var(--muted); justify-content: flex-end; }
+
   /* fleet */
   .fleet-view { overflow: auto; padding: 18px 22px 40px; }
   .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr); gap: 12px; margin-bottom: 16px; }
@@ -213,7 +237,7 @@
 const params = new URLSearchParams(location.search);
 const ui = {
   runs: [], run: null, view: params.get("view") ?? "runs", selected: params.get("run"), query: "",
-  level: "all", follow: true, tab: null, rewind: null, range: "6h", inbox: false,
+  level: "all", follow: true, chart: "context", tab: null, rewind: null, range: "6h", inbox: false,
   drafts: {}, seen: null, alerts: localStorage.getItem("factory.alerts") === "on",
 };
 const RANGES = { "1h": 60, "6h": 360, "24h": 1440, all: null };
@@ -302,7 +326,7 @@ function renderDetail() {
   const start = ms(run.steps.find((s) => s.started_at)?.started_at ?? run.created_at);
   const total = Math.max(runDuration(run) ?? 0, 1);
   const pos = (t) => ((ms(t) - start) / total) * 100;
-  const events = run.events.filter((e) => ui.level === "all" || (ui.level === "issues" ? ["warn", "error"].includes(e.level) : e.level !== "debug"));
+  const events = run.events.filter(LEVELS[ui.level]);
 
   el.innerHTML = `
     <div class="head">
@@ -330,15 +354,16 @@ function renderDetail() {
       return `<div class="wf s-${s.status}" style="--c:${color(s.name)}"><span class="n">${s.name}</span><div class="track">${span}${marks}</div>
         <span class="dur">${s.started_at ? duration(stepDuration(s)) : "—"}</span><span class="note" title="${esc(s.note)}">${esc(s.note || (s.status === "running" ? "working…" : ""))}</span></div>`;
     }).join("")}</div>
+    ${usageCard(run)}
     <div class="panes">
       <div class="pane">
         <div class="pane-head"><b>Activity</b><span>${run.events.length}</span>
           <label class="follow"><input type="checkbox" id="follow" ${ui.follow ? "checked" : ""}> follow <kbd>f</kbd></label>
-          <div class="seg">${["all", "steps", "issues"].map((l) => `<button data-level="${l}" class="${ui.level === l ? "on" : ""}">${l}</button>`).join("")}</div>
+          <div class="seg">${Object.keys(LEVELS).map((l) => `<button data-level="${l}" class="${ui.level === l ? "on" : ""}">${l}</button>`).join("")}</div>
         </div>
         <div class="log">${events.map((e) => `
           <div class="line ${e.level} ${/human/.test(e.message) ? "human" : ""}" style="--c:${color(e.step ?? "prepare")}">
-            <span class="t">${clock(e.at)}</span><span class="st">${e.step ?? ""}</span><span class="m">${esc(e.message)}</span></div>`).join("") || `<div class="empty">No events</div>`}
+            <span class="t">${clock(e.at)}</span><span class="st">${e.step ?? ""}</span><span class="m">${e.usage ? turnLine(e) : esc(e.message)}</span></div>`).join("") || `<div class="empty">No events</div>`}
           ${run.status === "running" ? `<div class="line debug"><span class="t"></span><span class="st"></span><span class="m">▍</span></div>` : ""}
         </div>
       </div>
@@ -355,6 +380,69 @@ function renderDetail() {
   $("follow").onchange = (e) => (ui.follow = e.target.checked);
   el.querySelectorAll("[data-level]").forEach((b) => (b.onclick = () => { ui.level = b.dataset.level; renderDetail(); }));
   el.querySelectorAll(".tabs [data-tab]").forEach((b) => (b.onclick = () => { ui.tab = b.dataset.tab; renderDetail(); }));
+  el.querySelectorAll("[data-chart]").forEach((b) => (b.onclick = () => { ui.chart = b.dataset.chart; renderDetail(); }));
+}
+
+const LEVELS = {
+  all: () => true,
+  steps: (e) => e.level !== "debug",
+  tools: (e) => e.usage,
+  issues: (e) => ["warn", "error"].includes(e.level),
+};
+
+const turnLine = (e) => `<span class="ag" style="--c:${agentColor(e.agent)}">${e.agent}</span>` +
+  (e.tools.map((t) => `<span class="tool">${esc(t)}</span>`).join("") || `<span class="faint">replied</span>`) +
+  `<span class="ctx" title="context · output tokens">${tokens(e.usage.context)} · ${tokens(e.usage.output)}</span>`;
+
+// Tokens over the run, one line per agent: how full each context was, or how much each has spent so far.
+function usageCard(run) {
+  const turns = turnsOf(run);
+  if (!turns.length) return "";
+  const agents = Object.keys(AGENTS).filter((a) => turns.some((t) => t.agent === a));
+  const start = ms(run.steps.find((s) => s.started_at)?.started_at ?? run.created_at);
+  const span = Math.max(runDuration(run) ?? 0, ms(turns.at(-1).at) - start, 1);
+  const cumulative = ui.chart === "cumulative";
+  const series = agents.map((agent) => {
+    let sum = 0;
+    return [agent, turns.filter((t) => t.agent === agent).map((t) => [ms(t.at), cumulative ? (sum += t.usage.context + t.usage.output) : t.usage.context])];
+  });
+  if (cumulative) {
+    let sum = 0;
+    series.push(["total", turns.map((t) => [ms(t.at), (sum += t.usage.context + t.usage.output)])]);
+  }
+  const top = Math.max(...series.flatMap(([, points]) => points.map(([, v]) => v)), 1) * 1.08;
+  const x = (t) => ((t - start) / span) * 100, y = (v) => 100 - (v / top) * 100;
+  const line = ([agent, points]) => `<polyline class="${agent}" style="--c:${agentColor(agent)}" points="${points.map(([t, v]) => `${x(t)},${y(v)}`).join(" ")}"/>`;
+  const levels = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top / 1.08);
+  const hours = [0, 0.25, 0.5, 0.75, 1].map((f) => start + f * span);
+  ui.plot = { start, span, turns };
+
+  const usage = usageOf(run.events);
+  const total = Object.values(usage).reduce((a, u) => a + u.tokens, 0);
+  const calls = Object.values(usage).reduce((a, u) => a + u.tools, 0);
+  const counts = {};
+  turns.flatMap((t) => t.tools).forEach((t) => (counts[t.split(" ")[0]] = (counts[t.split(" ")[0]] ?? 0) + 1));
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 7);
+  return `
+    <div class="card usage">
+      <div class="card-head"><b>Tokens</b>
+        <span class="chip"><b>${tokens(total)}</b> spent</span><span class="chip"><b>${turns.length}</b> turns</span><span class="chip"><b>${calls}</b> tool calls</span>
+        <span class="chip">peak context <b>${tokens(Math.max(...Object.values(usage).map((u) => u.peak)))}</b></span>
+        <div class="legend">${agents.map((a) => `<span style="--c:${agentColor(a)}" title="${usage[a].turns} turns · ${usage[a].tools} tools · peak ${tokens(usage[a].peak)}">${a} ${tokens(usage[a].tokens)}</span>`).join("")}</div>
+        <div class="spacer"></div>
+        <div class="seg" style="margin:0">${["context", "cumulative"].map((c) => `<button data-chart="${c}" class="${ui.chart === c ? "on" : ""}">${c}</button>`).join("")}</div>
+      </div>
+      <div class="usage-body">
+        <div class="plot" id="plot">
+          ${levels.map((v) => `<div class="gl" style="top:${y(v)}%"></div><span class="y" style="top:${y(v)}%">${tokens(Math.round(v))}</span>`).join("")}
+          ${hours.map((t, i) => `<span class="x" style="left:${x(t)}%;translate:${[50, 0, 0, 0, -50][i]}%">${clock(new Date(t))}</span>`).join("")}
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">${series.map(line).join("")}</svg>
+          <div class="cursor" id="cursor"></div>
+        </div>
+        <div class="tops"><h4>Top tools</h4>${ranked.map(([name, n]) => `
+          <div class="top"><span>${esc(name)}</span><div class="bar" style="width:${(n / ranked[0][1]) * 100}%"></div><span class="n">${n}</span></div>`).join("") || `<div class="faint">No tool calls yet</div>`}</div>
+      </div>
+    </div>`;
 }
 
 // ---------- fleet view ----------
@@ -408,6 +496,28 @@ function renderFleet() {
                   <div class="g-row" data-open="${r.id}">${grid}${bars}${flag}</div>`;
         }).join("") || `<div class="empty" style="grid-column:1/-1">No runs in this window</div>`}
       </div>
+    </div>
+    ${spendCard(visible)}`;
+}
+
+// Tokens per run, split by agent, on one scale.
+function spendCard(runs) {
+  const spent = (r) => Object.values(r.usage ?? {}).reduce((a, u) => a + u.tokens, 0);
+  const rows = runs.filter(spent);
+  if (!rows.length) return "";
+  const most = Math.max(...rows.map(spent)), all = rows.reduce((a, r) => a + spent(r), 0);
+  return `
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><b>Tokens by run</b><span class="muted">${tokens(all)} in this window</span><div class="spacer"></div>
+        <div class="legend">${Object.keys(AGENTS).map((a) => `<span style="--c:${agentColor(a)}">${a}</span>`).join("")}</div></div>
+      <div class="spend">${rows.map((r) => {
+        const usage = Object.entries(r.usage);
+        const tools = usage.reduce((a, [, u]) => a + u.tools, 0);
+        return `<div data-open="${r.id}"><span class="dot s-${r.status}"></span><span class="t">${esc(r.title)}</span></div>
+          <div data-open="${r.id}"><div class="stack" style="width:${(spent(r) / most) * 100}%">${usage.map(([a, u]) =>
+            `<i style="width:${(u.tokens / spent(r)) * 100}%;background:${agentColor(a)}" title="${a}: ${tokens(u.tokens)} · ${u.turns} turns · ${u.tools} tools"></i>`).join("")}</div></div>
+          <div class="d" data-open="${r.id}">${tokens(spent(r))} · ${tools} tools</div>`;
+      }).join("")}</div>
     </div>`;
 }
 
@@ -576,8 +686,18 @@ document.addEventListener("keydown", (e) => {
 });
 const tip = $("tip");
 document.addEventListener("mousemove", (e) => {
-  const mark = e.target.closest("[data-tip]"), span = e.target.closest(".span[data-step]");
-  if (!mark && !span) { tip.style.opacity = 0; return; }
+  const mark = e.target.closest("[data-tip]"), span = e.target.closest(".span[data-step]"), plot = e.target.closest("#plot");
+  if ($("cursor")) $("cursor").style.display = plot ? "block" : "none";
+  if (!mark && !span && !plot) { tip.style.opacity = 0; return; }
+  if (plot) {
+    const box = plot.getBoundingClientRect(), f = (e.clientX - box.left) / box.width;
+    const when = ui.plot.start + f * ui.plot.span;
+    const turn = ui.plot.turns.reduce((a, b) => (Math.abs(ms(b.at) - when) < Math.abs(ms(a.at) - when) ? b : a));
+    $("cursor").style.left = `${((ms(turn.at) - ui.plot.start) / ui.plot.span) * 100}%`;
+    tip.innerHTML = `<b style="color:${agentColor(turn.agent)}">${turn.agent}</b> · ${clock(turn.at)}
+      <div>context ${tokens(turn.usage.context)} · output ${tokens(turn.usage.output)}</div>
+      <div class="m">${turn.tools.map(esc).join("<br>") || "replied"}</div>`;
+  } else
   if (mark) tip.innerHTML = `<span class="m">${mark.dataset.tip}</span>`;
   else {
     const run = ui.runs.find((r) => r.id === span.dataset.run), step = run?.steps.find((s) => s.name === span.dataset.step);

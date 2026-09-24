@@ -10,7 +10,7 @@ import pytest
 
 from factory.contracts import Task
 from factory.inbox import Inbox, Kind
-from factory.run import Run, Status
+from factory.run import Run, Status, Usage
 from factory.ui import server as ui
 from factory.ui.server import PAGES, serve
 
@@ -49,8 +49,25 @@ def test_runs_api_summarises_and_details_a_run(server):
         "step": "prepare",
         "level": "info",
         "message": "started",
+        "agent": None,
+        "tools": [],
+        "usage": None,
     }
     assert "task.md" in detail["artifacts"]
+
+
+def test_summary_totals_tokens_and_tools_per_agent(server):
+    base, run = server
+    run.log(
+        "Read a.py · Grep x",
+        "debug",
+        agent="implementer",
+        tools=["Read a.py", "Grep x"],
+        usage=Usage(context=900, output=100),
+    )
+    run.log("replied", "debug", agent="implementer", usage=Usage(context=1500, output=50))
+    [summary] = json.loads(get(f"{base}/api/runs"))
+    assert summary["usage"] == {"implementer": {"turns": 2, "tools": 2, "tokens": 2550, "peak": 1500}}
 
 
 @pytest.mark.parametrize("path", ["api/runs/..%2F..%2Fetc", "static/../server.py", "api/runs/nope", "admin"])

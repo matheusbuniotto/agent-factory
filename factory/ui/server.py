@@ -15,7 +15,7 @@ from pathlib import Path
 from pydantic_core import to_json
 
 from factory.inbox import Inbox
-from factory.run import STEPS, Run, Status, runs_dir
+from factory.run import STEPS, Event, Run, Status, runs_dir
 
 STATIC = Path(__file__).parent / "static"
 PAGES = ("control", "board")
@@ -39,6 +39,19 @@ def needs(run: Run) -> list[dict]:
     return waiting
 
 
+def usage(events: list[Event]) -> dict[str, dict]:
+    """Per agent: model turns, tool calls, tokens spent and the fullest its context got."""
+    agents: dict[str, dict] = {}
+    for event in events:
+        if event.usage:
+            agent = agents.setdefault(event.agent, {"turns": 0, "tools": 0, "tokens": 0, "peak": 0})
+            agent["turns"] += 1
+            agent["tools"] += len(event.tools)
+            agent["tokens"] += event.usage.total
+            agent["peak"] = max(agent["peak"], event.usage.context)
+    return agents
+
+
 def summary(run: Run) -> dict:
     return {
         "id": run.id,
@@ -55,6 +68,7 @@ def summary(run: Run) -> dict:
         "created_at": run.created_at,
         "steps": run.steps,
         "needs": needs(run),
+        "usage": usage(run.events()),
     }
 
 

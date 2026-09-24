@@ -3,11 +3,11 @@
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic_ai import Agent, UsageLimits
-from pydantic_ai.capabilities import WebSearch
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.capabilities import Hooks, WebSearch
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -16,8 +16,12 @@ from pydantic_ai_harness import Coder, FileSystem, Skills, SummarizingCompaction
 from factory.config import Config, Endpoint
 from factory.contracts import Review, Spec, Task
 from factory.human import terminal
+from factory.run import Usage
 
 MAX_DIFF = 100_000
+
+Report = Callable[[str, list[str], Usage], None]
+"""Called after every model turn with the agent's name, the tools it called and the tokens it used."""
 
 PLANNER = """\
 You are the planner of an autonomous coding factory. Turn the task into a spec
@@ -67,24 +71,42 @@ class Crew(Protocol):
     def explain(self, task: Task, spec: Spec, diff: str, review: Review | None) -> str: ...
 
 
-def hire(config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal) -> Crew:
+def hire(
+    config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal, report: Report | None = None
+) -> Crew:
     """The crew for `config.runtime`."""
     if config.runtime == "claude":
         from factory.claude_crew import ClaudeCrew  # imported late: claude_crew imports this module
 
-        return ClaudeCrew(config, workspace, ask)
-    return PydanticCrew(config, workspace, ask)
+        return ClaudeCrew(config, workspace, ask, report)
+    return PydanticCrew(config, workspace, ask, report)
+
+
+def tool_label(name: str, args: dict[str, Any]) -> str:
+    """A tool call in one short line: its name and first text argument, e.g. `Read src/app.py`."""
+    detail = next((value for value in args.values() if isinstance(value, str)), "")
+    detail = " ".join(detail.split())
+    return f"{name} {detail[:80]}{'…' if len(detail) > 80 else ''}".strip()
 
 
 class PydanticCrew:
-    def __init__(self, config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal):
+    def __init__(
+        self,
+        config: Config,
+        workspace: Path,
+        ask: Callable[[str], str | None] = terminal,
+        report: Report | None = None,
+    ):
         self.config = config
         self.ask = ask
+        self.report = report
         self.limits = UsageLimits(request_limit=config.limits.requests)
         self.planner = self._planner(workspace)
         self.implementer = self._implementer(workspace)
         self.reviewer = self._reviewer(workspace)
-        self.scribe = Agent(self._model(config.models.scribe), instructions=SCRIBE)
+        self.scribe = Agent(
+            self._model(config.models.scribe), instructions=SCRIBE, capabilities=[self._watch("scribe")]
+        )
         self._plan_history: list[ModelMessage] = []
         self._implement_history: list[ModelMessage] = []
 
@@ -115,6 +137,20 @@ class PydanticCrew:
         prompt = f"{task.to_markdown()}\n{spec.to_markdown()}\n{notes}\n```diff\n{diff[:MAX_DIFF]}\n```"
         return self.scribe.run_sync(prompt, usage_limits=self.limits).output
 
+    def _watch(self, agent: str) -> Hooks:
+        """Reports each model turn of `agent`."""
+
+        async def after_model_request(ctx: Any, *, request_context: Any, response: ModelResponse) -> ModelResponse:
+            if self.report:
+                calls = [part for part in response.parts if isinstance(part, ToolCallPart)]
+                tools = [tool_label(call.tool_name, call.args_as_dict()) for call in calls]
+                self.report(
+                    agent, tools, Usage(context=response.usage.input_tokens, output=response.usage.output_tokens)
+                )
+            return response
+
+        return Hooks(after_model_request=after_model_request)
+
     def _model(self, name: str) -> Model | str:
         endpoint_name, _, model_name = name.partition(":")
         if endpoint := self.config.endpoints.get(endpoint_name):
@@ -129,7 +165,7 @@ class PydanticCrew:
             """Ask the human one question about the task and get their answer."""
             return self.ask(question) or "No answer. Make the safest reasonable choice and record it in `assumptions`."
 
-        capabilities = [FileSystem(root_dir=workspace, read_only=True)]
+        capabilities = [FileSystem(root_dir=workspace, read_only=True), self._watch("planner")]
         if self.config.limits.searches and isinstance(model, str):  # custom endpoints have no native search
             capabilities.append(WebSearch(max_uses=self.config.limits.searches))
         return Agent(
@@ -148,6 +184,7 @@ class PydanticCrew:
                 Coder(workspace),
                 Skills(self.config.skills),
                 SummarizingCompaction(max_tokens=self.config.limits.compact_at),
+                self._watch("implementer"),
             ],
         )
 
@@ -156,7 +193,7 @@ class PydanticCrew:
             self._model(self.config.models.reviewer),
             output_type=Review,
             instructions=REVIEWER,
-            capabilities=[Coder(workspace), Skills(self.config.skills)],
+            capabilities=[Coder(workspace), Skills(self.config.skills), self._watch("reviewer")],
         )
 
 

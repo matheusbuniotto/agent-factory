@@ -73,6 +73,14 @@ class Crew(Protocol):
 - `explain` writes an ELI5 "what was done and why" for onboarding in
   under 300 words.
 
+## Telemetry
+
+Both crews take `report(agent, tools, usage)` and call it after every model
+turn with one-line tool labels (`Read src/app.py`) and `Usage(context, output)`
+tokens. The pipeline logs each turn as a `debug` event with `agent`, `tools`
+and `usage`; the dashboard draws context and cumulative tokens per agent from
+them, and `/api/runs` sums them per agent in `usage`.
+
 ## Must not infer
 
 - The implementer must not read `.factory/`, push, or open PRs. `ship` does that.

@@ -6,6 +6,7 @@ const STEPS = ["prepare", "plan", "implement", "review", "ship", "learn"];
 const ARTIFACTS = ["task.md", "prepare.md", "spec.md", "implement.md", "checks.md", "review.md", "ship.md", "learning.md"];
 const STEP_ARTIFACT = { prepare: "prepare.md", plan: "spec.md", implement: "checks.md", review: "review.md", ship: "ship.md", learn: "learning.md" };
 const MIN = 60_000;
+const AGENTS = { planner: "plan", implementer: "implement", reviewer: "review", scribe: "learn" }; // agent -> its step colour
 
 const Factory = {
   demo: new URLSearchParams(location.search).has("demo") || location.protocol === "file:",
@@ -66,6 +67,20 @@ function ago(iso) {
   if (ms < 60 * MIN) return `${Math.floor(ms / MIN)}m ago`;
   if (ms < 24 * 60 * MIN) return `${Math.floor(ms / 60 / MIN)}h ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+const agentColor = (agent) => `var(--${AGENTS[agent] ?? "prepare"})`;
+const tokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n ?? 0));
+const turnsOf = (run) => run.events.filter((e) => e.usage);
+
+// Per agent: model turns, tool calls, tokens spent and fullest context. The server sends the same shape.
+function usageOf(events) {
+  const agents = {};
+  for (const e of events.filter((e) => e.usage)) {
+    const a = (agents[e.agent] ??= { turns: 0, tools: 0, tokens: 0, peak: 0 });
+    a.turns += 1; a.tools += e.tools.length; a.tokens += e.usage.context + e.usage.output; a.peak = Math.max(a.peak, e.usage.context);
+  }
+  return agents;
 }
 
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
@@ -223,11 +238,28 @@ const Demo = (() => {
     },
   ];
 
-  const toolLines = [
-    "read_file src/export.py", "search_files 'def export'", "edit_file src/export.py (+18 -2)",
-    "shell uv run pytest tests/test_export.py -q", "read_file tests/test_export.py", "edit_file tests/test_export.py (+24)",
-    "shell uv run ruff check src", "load skill: software",
-  ];
+  const TOOLS = {
+    planner: ["Read README.md", "Glob **/*.py", "Grep def export", "Read pyproject.toml", "WebSearch click json output"],
+    implementer: ["Read src/export.py", "Edit src/export.py", "Bash uv run pytest tests/test_export.py -q", "Write tests/test_export.py",
+                  "Grep json.dumps", "Bash uv run ruff check src", "Skill software"],
+    reviewer: ["Read src/export.py", "Bash git diff --stat", "Bash uv run pytest -q", "Edit src/export.py"],
+    scribe: [],
+  };
+
+  // Simulated model turns between two times: tool calls, a context that grows and is compacted near 170k.
+  function turns(agent, step, from, to, seed) {
+    const random = (i) => (Math.sin(seed * 7919 + i * 104729) + 1) / 2;
+    const count = agent === "scribe" ? 1 : Math.min(60, Math.max(2, Math.round((to - from) / 20_000)));
+    let context = 4_000 + random(0) * 6_000;
+    return Array.from({ length: count }, (_, i) => {
+      const last = i === count - 1 && agent !== "implementer";
+      const tools = last ? [] : Array.from({ length: 1 + Math.floor(random(i + 1) * 2.4) }, (_, j) => TOOLS[agent][Math.floor(random(i * 3 + j) * TOOLS[agent].length)]);
+      context += 1_500 + random(i + 7) * 6_500;
+      if (context > 170_000) context = 32_000;
+      const usage = { context: Math.round(context), output: Math.round(150 + random(i + 3) * 1_400) };
+      return { at: new Date(from + ((to - from) * (i + 1)) / (count + 1)).toISOString(), step, level: "debug", message: tools.join(" · ") || "replied", agent, tools, usage };
+    });
+  }
 
   function build(script, index) {
     const id = `20260923-${String(100000 + index * 1111).slice(0, 6)}-${script.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40).replace(/-$/, "")}`;
@@ -242,14 +274,11 @@ const Demo = (() => {
       const extra = script.extra?.[name] ?? [];
       extra.forEach(([message, level = "info"], i) =>
         events.push({ at: at(minutes - (took * (i + 1)) / (extra.length + 1)), step: name, level, message }));
+      const agent = Object.keys(AGENTS).find((a) => AGENTS[a] === name);
+      const end = status === "running" ? Date.now() : boot - (minutes - took) * MIN;
+      if (agent) events.push(...turns(agent, name, boot - minutes * MIN, end, index + STEPS.indexOf(name)));
       if (status === "running") {
         step.status = "running";
-        // Stream fake tool calls so the log looks alive.
-        const ticks = Math.floor((Date.now() - boot) / 3500) + 3;
-        for (let i = 0; i < ticks; i++) {
-          const when = new Date(Date.now() - (ticks - i) * 3500).toISOString();
-          events.push({ at: when, step: name, level: "debug", message: toolLines[(i + index) % toolLines.length] });
-        }
       } else {
         minutes -= took;
         Object.assign(step, { status, finished_at: at(minutes), note });
@@ -286,7 +315,7 @@ const Demo = (() => {
       id, title: script.title, source: script.source, url: script.url ?? null, status,
       step: steps.find((s) => s.status !== "done")?.name ?? null,
       kind: planned ? script.kind : null, size: planned ? script.size : null, branch: `factory/${id}`, workspace: `.factory/worktrees/${id}`,
-      pr_url: pr ?? null, created_at: at(script.ago), steps, needs, events, artifacts: artifacts(script, steps),
+      pr_url: pr ?? null, created_at: at(script.ago), steps, needs, events, artifacts: artifacts(script, steps), usage: usageOf(events),
     };
   }
 

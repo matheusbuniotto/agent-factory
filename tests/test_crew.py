@@ -17,6 +17,8 @@ def test_crew_produces_typed_outputs(repo: Path, spec: Spec, monkeypatch: pytest
     planner = TestModel(call_tools=[], custom_output_args=spec.model_dump(mode="json"))
     reviewer = TestModel(call_tools=[], custom_output_args={"verdict": "approve", "summary": "fine"})
     worker = TestModel(call_tools=[], custom_output_text="done")
+    turns = []
+    crew.report = lambda *turn: turns.append(turn)
 
     with (
         crew.planner.override(model=planner),
@@ -30,6 +32,9 @@ def test_crew_produces_typed_outputs(repo: Path, spec: Spec, monkeypatch: pytest
         assert crew.implement(planned, feedback="tests fail") == "done"
         assert crew.review(planned, "diff").approved
         assert crew.explain(Task(title="t", body="b"), planned, "diff", None) == "done"
+
+    assert {agent for agent, *_ in turns} == {"planner", "implementer", "reviewer", "scribe"}
+    assert all(usage.context > 0 for *_, usage in turns)
 
 
 def test_models_can_live_on_an_openai_compatible_endpoint(repo: Path, monkeypatch: pytest.MonkeyPatch):

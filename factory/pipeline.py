@@ -8,7 +8,7 @@ from factory.config import Config
 from factory.contracts import Check, Review, Source, Spec
 from factory.crew import Crew, hire
 from factory.inbox import Kind
-from factory.run import STEPS, Run, Status
+from factory.run import STEPS, Run, Status, Usage
 
 log = logging.getLogger("factory")
 LEVELS = {Status.DONE: "info", Status.ESCALATED: "warn", Status.FAILED: "error"}
@@ -28,7 +28,7 @@ class Pipeline:
     @property
     def crew(self) -> Crew:
         if self._crew is None:
-            self._crew = hire(self.config, self.run.workspace, ask=self.human.ask)
+            self._crew = hire(self.config, self.run.workspace, ask=self.human.ask, report=self._turn)
         return self._crew
 
     @property
@@ -145,6 +145,10 @@ class Pipeline:
     def _log(self, message: str, level: str = "info", step: str | None = None) -> None:
         event = self.run.log(message, level, step)
         log.info("%-9s %s", event.step, message)
+
+    def _turn(self, agent: str, tools: list[str], usage: Usage) -> None:
+        """One model turn, for the dashboard: which tools it called and how full its context was."""
+        self.run.log(" · ".join(tools) or "replied", "debug", agent=agent, tools=tools, usage=usage)
 
     def _check(self) -> list[Check]:
         results = checks.run_checks(checks.commands(self.config.checks, self.run.workspace), self.run.workspace)

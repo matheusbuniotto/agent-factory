@@ -4,13 +4,14 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, ToolUseBlock
 
 from factory import claude_crew
 from factory.claude_crew import ClaudeCrew
 from factory.config import Config
 from factory.contracts import Spec, Task
 from factory.crew import PydanticCrew, hire
+from factory.run import Usage
 
 
 class FakeClaude:
@@ -20,8 +21,12 @@ class FakeClaude:
         self.outputs = list(outputs)
         self.calls: list[tuple[str, ClaudeAgentOptions]] = []
 
-    async def __call__(self, prompt: str, options: ClaudeAgentOptions) -> ResultMessage:
+    async def __call__(self, prompt: str, options: ClaudeAgentOptions, turns: claude_crew._Turns) -> ResultMessage:
         self.calls.append((prompt, options))
+        tool = ToolUseBlock(id="t", name="Read", input={"file_path": "calc.py"})
+        turns.add(AssistantMessage(content=[tool], model="m", message_id="a", usage={"input_tokens": 10}))
+        turns.add(AssistantMessage(content=[tool], model="m", message_id="a", usage={"input_tokens": 12}))
+        turns.flush()
         output = self.outputs.pop(0)
         return ResultMessage(
             subtype="success",
@@ -46,6 +51,8 @@ def claude(
 def test_claude_crew_produces_typed_outputs(repo: Path, spec: Spec, monkeypatch: pytest.MonkeyPatch):
     review = {"verdict": "approve", "summary": "fine"}
     crew, fake = claude(repo, monkeypatch, spec.model_dump(mode="json"), "done", "done", review, "eli5")
+    crew.report = lambda *turn: turns.append(turn)
+    turns = []
 
     planned = crew.plan(Task(title="t", body="b"))
     assert planned == spec
@@ -61,6 +68,8 @@ def test_claude_crew_produces_typed_outputs(repo: Path, spec: Spec, monkeypatch:
     assert "Edit" in reviewer.tools and reviewer.plugins
     assert scribe.tools == [] and scribe.model == "claude-haiku-4-5"
     assert all(options.env["ANTHROPIC_API_KEY"] == "" for _, options in fake.calls)
+    assert [agent for agent, *_ in turns] == ["planner", "implementer", "implementer", "reviewer", "scribe"]
+    assert turns[0][1:] == (["Read calc.py", "Read calc.py"], Usage(context=12, output=0))
 
 
 def test_planner_revises_in_the_same_session(repo: Path, spec: Spec, monkeypatch: pytest.MonkeyPatch):
