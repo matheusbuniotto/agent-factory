@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -14,6 +14,10 @@ from factory.run import STEPS, Run, Status, runs_dir
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 Repo = Annotated[Path, typer.Option(help="Git repository to work on.")]
+Runtime = Annotated[
+    Literal["pydantic-ai", "claude"] | None,
+    typer.Option(envvar="FACTORY_RUNTIME", help="Agent runtime: pydantic-ai (API keys) or claude (subscription)."),
+]
 UseInbox = Annotated[bool, typer.Option("--inbox", help="Wait for answers in the dashboard or `factory answer`.")]
 
 
@@ -25,10 +29,11 @@ def run(
     review_spec: Annotated[bool, typer.Option(help="Approve the spec before implementation.")] = False,
     review_code: Annotated[bool, typer.Option(help="Approve the changes before shipping.")] = False,
     inbox: UseInbox = False,
+    runtime: Runtime = None,
 ) -> None:
     """Take a task from intake to a branch or pull request."""
     repo = repo.resolve()
-    config = _config(repo, inbox)
+    config = _config(repo, inbox, runtime)
     config.human.grill |= grill
     config.human.spec |= review_spec
     config.human.code |= review_code
@@ -42,6 +47,7 @@ def resume(
     step: Annotated[str | None, typer.Option("--from", help=f"Rewind to one of: {', '.join(STEPS)}.")] = None,
     guidance: Annotated[str | None, typer.Option(help="Advice for the agent on the step it resumes.")] = None,
     inbox: UseInbox = False,
+    runtime: Runtime = None,
 ) -> None:
     """Continue a stopped run, optionally rewinding to a step and giving guidance."""
     repo = repo.resolve()
@@ -49,7 +55,7 @@ def resume(
     if step:
         run.rewind(step)
     run.guidance = guidance
-    _execute(run, _config(repo, inbox))
+    _execute(run, _config(repo, inbox, runtime))
 
 
 @app.command("inbox")
@@ -112,8 +118,10 @@ def ui(
         server.shutdown()
 
 
-def _config(repo: Path, inbox: bool) -> Config:
+def _config(repo: Path, inbox: bool, runtime: Literal["pydantic-ai", "claude"] | None = None) -> Config:
     config = Config.load(repo)
+    if runtime:
+        config.runtime = runtime
     if inbox:
         config.human.channel = "inbox"
     return config

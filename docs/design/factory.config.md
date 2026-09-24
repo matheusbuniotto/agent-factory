@@ -23,6 +23,7 @@ checks  = ["uv run ruff check .", "uv run pytest -q"]
 hydrate = ["uv sync"]
 skills  = ["skills", ".factory/skills"]
 pull_request = true
+runtime = "pydantic-ai"   # or "claude": Claude Agent SDK on your Claude subscription
 
 # Any OpenAI-compatible API: vLLM, Ollama, LiteLLM, OpenRouter, Azure...
 # Models refer to it as "<endpoint>:<model>".
@@ -64,6 +65,9 @@ requests      = 200      # model requests per agent call, a spend guard
 - If `api_key_env` is set but the variable is missing, building the crew raises
   `ValueError("endpoint 'local' needs $LOCAL_API_KEY")`.
 - A planner on a custom endpoint gets no web search. Those servers have no native search tool.
+- `runtime` picks the crew. `--runtime` or `$FACTORY_RUNTIME` overrides it for
+  one run. The `claude` runtime only accepts Anthropic models (`anthropic:` or
+  no prefix) and raises `ValueError` otherwise.
 - CLI flags `--grill`, `--review-spec`, and `--review-code` switch human
   points on for one run.
 

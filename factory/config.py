@@ -47,6 +47,7 @@ class Limits(Settings):
 
 
 class Config(Settings):
+    runtime: Literal["pydantic-ai", "claude"] = "pydantic-ai"  # claude = Claude Agent SDK on your subscription
     checks: list[str] = []
     hydrate: list[str] = []
     skills: list[Path] = []

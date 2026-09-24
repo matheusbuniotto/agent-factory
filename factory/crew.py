@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.capabilities import WebSearch
@@ -59,7 +60,23 @@ they were five. Plain words, short sentences, under 300 words, markdown.
 Cover: the problem, what changed, how to try it, and anything to watch out for."""
 
 
-class Crew:
+class Crew(Protocol):
+    def plan(self, task: Task, feedback: str | None = None) -> Spec: ...
+    def implement(self, spec: Spec, feedback: str | None = None) -> str: ...
+    def review(self, spec: Spec, diff: str) -> Review: ...
+    def explain(self, task: Task, spec: Spec, diff: str, review: Review | None) -> str: ...
+
+
+def hire(config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal) -> Crew:
+    """The crew for `config.runtime`."""
+    if config.runtime == "claude":
+        from factory.claude_crew import ClaudeCrew  # imported late: claude_crew imports this module
+
+        return ClaudeCrew(config, workspace, ask)
+    return PydanticCrew(config, workspace, ask)
+
+
+class PydanticCrew:
     def __init__(self, config: Config, workspace: Path, ask: Callable[[str], str | None] = terminal):
         self.config = config
         self.ask = ask

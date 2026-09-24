@@ -6,7 +6,7 @@ import shutil
 from factory import checks, human, workspace
 from factory.config import Config
 from factory.contracts import Check, Review, Source, Spec
-from factory.crew import Crew
+from factory.crew import Crew, hire
 from factory.inbox import Kind
 from factory.run import STEPS, Run, Status
 
@@ -28,7 +28,7 @@ class Pipeline:
     @property
     def crew(self) -> Crew:
         if self._crew is None:
-            self._crew = Crew(self.config, self.run.workspace, ask=self.human.ask)
+            self._crew = hire(self.config, self.run.workspace, ask=self.human.ask)
         return self._crew
 
     @property

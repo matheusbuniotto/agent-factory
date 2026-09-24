@@ -34,6 +34,18 @@ factory answer <run-id> <question-id> "only v2"   # or leave the text out to app
 factory ui                       # dashboard at http://127.0.0.1:8765/control
 ```
 
+### On a Claude subscription
+
+Run the same crew on the Claude Agent SDK instead of Pydantic AI. It uses your
+Claude Code login (`claude login`), not an API key:
+
+```bash
+factory run "Fix the flaky test" --runtime claude   # one run
+export FACTORY_RUNTIME=claude                        # every run
+```
+
+Or set `runtime = "claude"` in `factory.toml`. Only Anthropic models work there.
+
 The dashboard's **Runs** view shows each run's waterfall, live activity and
 artifacts. **Fleet** shows every run on one clock and where the time goes. The
 **Inbox** (`i`) collects every question, approval and escalation. You can answer

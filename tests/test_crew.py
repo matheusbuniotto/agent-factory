@@ -8,12 +8,12 @@ from pydantic_ai.models.test import TestModel
 
 from factory.config import Config, Limits
 from factory.contracts import Spec, Task
-from factory.crew import Crew
+from factory.crew import PydanticCrew
 
 
 def test_crew_produces_typed_outputs(repo: Path, spec: Spec, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "unused")
-    crew = Crew(Config.load(repo).model_copy(update={"limits": Limits(searches=0)}), repo)
+    crew = PydanticCrew(Config.load(repo).model_copy(update={"limits": Limits(searches=0)}), repo)
     planner = TestModel(call_tools=[], custom_output_args=spec.model_dump(mode="json"))
     reviewer = TestModel(call_tools=[], custom_output_args={"verdict": "approve", "summary": "fine"})
     worker = TestModel(call_tools=[], custom_output_text="done")
@@ -40,7 +40,7 @@ def test_models_can_live_on_an_openai_compatible_endpoint(repo: Path, monkeypatc
         '[models]\nimplementer = "local:qwen3-coder"\nplanner = "local:qwen3-coder"\n'
     )
 
-    crew = Crew(Config.load(repo), repo)
+    crew = PydanticCrew(Config.load(repo), repo)
 
     assert isinstance(crew.implementer.model, OpenAIChatModel)
     assert crew.implementer.model.model_name == "qwen3-coder"
@@ -56,4 +56,4 @@ def test_endpoint_without_its_key_fails_loudly(repo: Path, monkeypatch: pytest.M
         '[models]\nscribe = "local:small"\n'
     )
     with pytest.raises(ValueError, match=r"needs \$LOCAL_KEY"):
-        Crew(Config.load(repo), repo)
+        PydanticCrew(Config.load(repo), repo)

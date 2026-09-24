@@ -4,7 +4,7 @@ title: The agents
 version: 1
 depends_on: [factory.contracts, factory.config, factory.run]
 provides: [Crew]
-generated_artifact: factory/crew.py
+generated_artifact: [factory/crew.py, factory/claude_crew.py]
 status: accepted
 ---
 
@@ -24,11 +24,34 @@ only the capabilities that job needs.
 | reviewer    | 6     | `Review` | `Coder(workspace)` (small fixes only), `Skills(config.skills)` |
 | scribe      | 9     | `str` markdown | none |
 
+## Runtimes
+
+`hire(config, workspace, ask)` returns the crew for `config.runtime`. Both
+behave the same; only the engine differs.
+
+| Runtime       | Class          | Engine | Billing |
+|---------------|----------------|--------|---------|
+| `pydantic-ai` | `PydanticCrew` | Pydantic AI + harness capabilities (above) | API keys |
+| `claude`      | `ClaudeCrew`   | Claude Agent SDK (Claude Code) | Claude subscription login; `ANTHROPIC_API_KEY` is blanked |
+
+`ClaudeCrew` maps each capability to Claude Code:
+
+- read-only `FileSystem` → tools `Read`, `Glob`, `Grep`; `Coder` → plus `Write`, `Edit`, `Bash`.
+- `WebSearch(max_uses)` → `WebSearch` with a `PreToolUse` hook that denies it past the limit.
+- `ask_human` → an in-process MCP tool `mcp__factory__ask_human`.
+- `Skills` → a temporary local plugin linking every `<root>/<name>/SKILL.md` folder, plus the `Skill` tool.
+- `SummarizingCompaction` → Claude Code's own auto-compaction.
+- typed output → `output_format` JSON schema, validated with the Pydantic model.
+- message history → session `resume`.
+- `UsageLimits(request_limit)` → `max_turns`.
+
+Every agent runs with `permission_mode="dontAsk"` and `setting_sources=[]`:
+only its listed tools, and none of the user's or repo's Claude Code settings.
+
 ## Public interface
 
 ```python
-class Crew:
-    def __init__(self, config: Config, workspace: Path): ...
+class Crew(Protocol):
     def plan(self, task: Task, feedback: str | None = None) -> Spec: ...
     def implement(self, spec: Spec, feedback: str | None = None) -> str: ...
     def review(self, spec: Spec, diff: str) -> Review: ...
