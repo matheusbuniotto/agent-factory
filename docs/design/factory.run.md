@@ -17,7 +17,9 @@ supports resuming and rewinding, and it keeps every step visible as a file.
 
 ## Semantic contract
 
-- The run directory is `<repo>/.factory/runs/<id>/`.
+- The run directory is `<repo>/.factory/runs/<id>/`, or `$FACTORY_HOME/runs/<id>/` when that is set
+  (one shared folder for every repo and worker, EFS on AWS).
+- A Jira task's key stays uppercase in the id: `20260924-101500-PROJ-7-fix-login-a1b2`.
 - State lives in `run.json`, which `Run.load` reads back unchanged.
 - `STEPS = ("prepare", "plan", "implement", "review", "ship", "learn")`.
 - Each `Step` has a `status` in `pending | running | done | failed | escalated`

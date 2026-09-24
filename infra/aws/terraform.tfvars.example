@@ -1,0 +1,38 @@
+region = "us-east-1"
+
+# Your closed VPC: private subnets (one is enough) and their route tables.
+vpc_id          = "vpc-0123456789abcdef0"
+subnet_ids      = ["subnet-0123456789abcdef0"]
+route_table_ids = ["rtb-0123456789abcdef0"]
+
+# Drop the endpoints your VPC already has.
+# endpoints = ["bedrock-runtime", "ecr.api", "ecr.dkr", "ecs", "logs", "secretsmanager", "sqs", "sts", "ssmmessages"]
+
+# The only way out to GitHub and Jira. Leave empty if a NAT with an allow-list does it.
+https_proxy = "http://proxy.corp.internal:3128"
+
+# Jira project key => the GitHub repo its tickets change.
+projects = {
+  PROJ = "acme/api"
+}
+
+# jira = { trigger = "factory", ready = "Ready for agent", started = "In Progress", done = "In Review" }
+
+# GitHub Enterprise Server:
+# github_host = "github.acme.internal"
+# github_api  = "https://github.acme.internal/api/v3"
+
+# A team UI behind single sign-on. Without it, `make ui` port-forwards over SSM.
+# alb = {
+#   certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+#   allowed_cidrs          = ["10.0.0.0/8"]
+#   issuer                 = "https://acme.okta.com"
+#   authorization_endpoint = "https://acme.okta.com/oauth2/v1/authorize"
+#   token_endpoint         = "https://acme.okta.com/oauth2/v1/token"
+#   user_info_endpoint     = "https://acme.okta.com/oauth2/v1/userinfo"
+#   client_id              = "..."
+#   client_secret          = "..."
+# }
+# ui_url = "https://factory.acme.internal"
+
+# budget = { limit = 500, emails = ["you@acme.com"] }

@@ -6,6 +6,7 @@
 Background runs have nobody at a terminal, so they ask through the inbox.
 """
 
+import json
 import logging
 import os
 import subprocess
@@ -16,7 +17,7 @@ from pathlib import Path
 from factory.config import Config, Lane
 from factory.contracts import Task
 from factory.pipeline import Pipeline
-from factory.run import Run
+from factory.run import Run, Status
 
 log = logging.getLogger("factory")
 
@@ -76,6 +77,22 @@ def work(repo: Path, config: Config) -> None:
             Pipeline(run, config).execute()
         except Exception:
             log.exception("run %s failed", run.id)
+
+
+def report(run: Run, url: str) -> None:
+    """Tell a results queue how the run ended. On AWS a Lambda turns it into a Jira comment,
+    so the worker never needs Jira credentials."""
+    learning = run.dir / "learning.md"
+    stopped = next((step for step in run.steps if step.status is not Status.DONE), None)
+    outcome = {
+        "run": run.id,
+        "status": run.status,
+        "task": run.task.model_dump(mode="json"),
+        "pr_url": run.pr_url,
+        "reason": stopped and stopped.note,
+        "learning": learning.read_text() if learning.exists() else None,
+    }
+    _sqs().send_message(QueueUrl=url, MessageBody=json.dumps(outcome))
 
 
 def _sqs():

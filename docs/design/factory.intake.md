@@ -18,6 +18,8 @@ Turn whatever the human typed into a `Task`.
 
 `intake(source: str) -> Task`. The rules are tried in order:
 
+0. **Task JSON**: `source` starts with `{`. → `Task.model_validate_json(source)`.
+   This is how the AWS poller hands a Jira ticket to a worker.
 1. **Issue**: `source` is `#<n>` or matches `https://github.com/<o>/<r>/issues/<n>`.
    → `gh issue view <source> --json title,body,url`, `source=issue`, `url` set.
 2. **File**: `Path(source)` is an existing file.
@@ -37,6 +39,8 @@ Tickets from Linear and Jira arrive as webhooks, not through `intake`; see
   out: {title: "Add a subtract function", source: text}
 - in: "docs/task.md"            # contains "# Fix login\n..."
   out: {title: "Fix login", source: file, url: "docs/task.md"}
+- in: '{"title": "Fix login", "body": "...", "source": "jira", "url": "https://acme.atlassian.net/browse/PROJ-7"}'
+  out: {title: "Fix login", source: jira, key: "PROJ-7"}
 - in: "#42"
   out: {source: issue, title: <from gh>, url: <from gh>}
 ```
@@ -45,6 +49,7 @@ Tickets from Linear and Jira arrive as webhooks, not through `intake`; see
 
 - The `gh` command fails → `RuntimeError` with gh's stderr.
 - Empty source → `ValueError("empty task")`.
+- Invalid task JSON → pydantic `ValidationError`.
 
 ## Must not infer
 

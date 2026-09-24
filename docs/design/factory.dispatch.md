@@ -36,6 +36,9 @@ POST /api/hooks ┘                         └─ sqs ───► SQS ─► f
 - `work(repo, config)` long-polls the queue and runs one task at a time with
   `human.channel = "inbox"`. A message is deleted as soon as it is received, so
   delivery is at most once. A failed run stays in `.factory/runs` and can be resumed.
+- `report(run, url)` sends `{run, status, task, pr_url, reason, learning}` to an SQS queue.
+  `factory run --report <url>` (`$FACTORY_REPORT_URL`) calls it when the run stops, however it
+  stops, then exits 0. On AWS a Lambda turns it into a Jira comment ([aws.md](../aws.md)).
 - The queue URL is `dispatch.queue_url`, else `$FACTORY_QUEUE_URL`, else
   `ValueError`. Without `boto3` installed, the sqs lane raises `RuntimeError`
   (`pip install 'agent-factory[aws]'`).

@@ -1,4 +1,5 @@
-"""The same crew on the Claude Agent SDK: Claude Code does the work, billed to your Claude subscription."""
+"""The same crew on the Claude Agent SDK: Claude Code does the work, billed to your Claude subscription,
+or to AWS for `bedrock:` models."""
 
 import asyncio
 import shutil
@@ -29,6 +30,8 @@ from factory.run import Usage
 READ = ["Read", "Glob", "Grep"]
 CODE = [*READ, "Write", "Edit", "Bash"]
 ASK_HUMAN = "mcp__factory__ask_human"
+SUBSCRIPTION = {"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}  # use the subscription login, not API keys
+BEDROCK = {"CLAUDE_CODE_USE_BEDROCK": "1"}  # AWS credentials and region come from the environment
 
 
 class ClaudeCrew:
@@ -104,8 +107,9 @@ class ClaudeCrew:
     def _options(
         self, role: str, instructions: str, tools: list[str], output_type: type[BaseModel] | None = None
     ) -> ClaudeAgentOptions:
+        model, env = self.models[role]
         return ClaudeAgentOptions(
-            model=self.models[role],
+            model=model,
             system_prompt=instructions,
             cwd=self.workspace,
             tools=tools,
@@ -114,7 +118,7 @@ class ClaudeCrew:
             setting_sources=[],  # ignore the user's and the repo's Claude Code settings
             max_turns=self.config.limits.requests,
             output_format={"type": "json_schema", "schema": output_type.model_json_schema()} if output_type else None,
-            env={"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""},  # use the subscription login, not API keys
+            env=env,
         )
 
     def _ask_human_tool(self):
@@ -179,11 +183,15 @@ def _parse[T: BaseModel](output_type: type[T], result: ResultMessage) -> T:
     return output_type.model_validate(result.structured_output)
 
 
-def _claude_model(name: str) -> str:
-    provider, _, model = name.rpartition(":")
-    if provider not in ("", "anthropic"):
-        raise ValueError(f"the claude runtime only runs Anthropic models, not {name!r}")
-    return model
+def _claude_model(name: str) -> tuple[str, dict[str, str]]:
+    """The model id Claude Code expects, and the environment that picks its provider."""
+    provider, _, model = name.partition(":") if ":" in name else ("", "", name)
+    match provider:
+        case "" | "anthropic":
+            return model, SUBSCRIPTION
+        case "bedrock":  # Bedrock ids contain colons too: bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0
+            return model, BEDROCK
+    raise ValueError(f"the claude runtime only runs Anthropic models, on the subscription or Bedrock, not {name!r}")
 
 
 def _at_most(limit: int):

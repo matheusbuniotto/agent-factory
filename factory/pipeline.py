@@ -172,6 +172,7 @@ class Pipeline:
 
     def _open_pr(self) -> None:
         closes = f"\n\nCloses {self.run.task.url}" if self.run.task.source is Source.ISSUE else ""
+        title = f"{key} {self.spec.title}" if (key := self.run.task.key) else self.spec.title
         workspace.push(self.run.workspace, self.run.branch)
-        self.run.pr_url = workspace.open_pr(self.run.workspace, self.spec.title, self.spec.to_markdown() + closes)
+        self.run.pr_url = workspace.open_pr(self.run.workspace, title, self.spec.to_markdown() + closes)
         workspace.comment(self.run.workspace, self.run.pr_url, self.run.review.to_markdown())

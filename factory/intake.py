@@ -1,4 +1,4 @@
-"""Step 0: turn text, a markdown file or a GitHub issue into a Task. Webhooks go through `factory.hooks`."""
+"""Step 0: turn text, a markdown file, a GitHub issue or task JSON into a Task. Webhooks go through `factory.hooks`."""
 
 import json
 import re
@@ -14,6 +14,8 @@ def intake(source: str, cwd: Path = Path()) -> Task:
     source = source.strip()
     if not source:
         raise ValueError("empty task")
+    if source.startswith("{"):  # a whole Task, e.g. a Jira ticket handed over by the AWS poller
+        return Task.model_validate_json(source)
     if ISSUE.match(source):
         return _issue(source, cwd)
     if (path := Path(source)).is_file():

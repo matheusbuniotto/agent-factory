@@ -22,6 +22,11 @@ class Task(BaseModel):
     url: str | None = None
     labels: list[str] = []
 
+    @property
+    def key(self) -> str | None:
+        """A Jira key such as `PROJ-123`. Kept uppercase in branch and PR names so Jira links them."""
+        return self.url.rsplit("/", 1)[-1] if self.source is Source.JIRA and self.url else None
+
     def to_markdown(self) -> str:
         origin = f"\n\nSource: {self.url}" if self.url else ""
         return f"# {self.title}\n\n{self.body}{origin}\n"

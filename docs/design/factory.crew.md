@@ -32,7 +32,7 @@ behave the same; only the engine differs.
 | Runtime       | Class          | Engine | Billing |
 |---------------|----------------|--------|---------|
 | `pydantic-ai` | `PydanticCrew` | Pydantic AI + harness capabilities (above) | API keys |
-| `claude`      | `ClaudeCrew`   | Claude Agent SDK (Claude Code) | Claude subscription login; `ANTHROPIC_API_KEY` is blanked |
+| `claude`      | `ClaudeCrew`   | Claude Agent SDK (Claude Code) | Claude subscription login (`ANTHROPIC_API_KEY` is blanked), or AWS for `bedrock:` models (`CLAUDE_CODE_USE_BEDROCK=1`) |
 
 `ClaudeCrew` maps each capability to Claude Code:
 

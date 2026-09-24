@@ -74,8 +74,11 @@ queue_url = ""           # the sqs lane; or $FACTORY_QUEUE_URL
 - If `api_key_env` is set but the variable is missing, building the crew raises
   `ValueError("endpoint 'local' needs $LOCAL_API_KEY")`.
 - A planner on a custom endpoint gets no web search. Those servers have no native search tool.
+- `Config.load(repo, overlay)`: an operator's `factory.toml` (`--config`, `$FACTORY_CONFIG`) is
+  merged over the repo's, table by table: `[models] planner` in the overlay replaces only the planner.
+  On AWS it pins Bedrock models and limits for every repo.
 - `runtime` picks the crew. `--runtime` or `$FACTORY_RUNTIME` overrides it for
-  one run. The `claude` runtime only accepts Anthropic models (`anthropic:` or
+  one run. The `claude` runtime only accepts Anthropic models (`anthropic:`, `bedrock:` or
   no prefix) and raises `ValueError` otherwise.
 - CLI flags `--grill`, `--review-spec`, and `--review-code` switch human
   points on for one run.
@@ -83,5 +86,6 @@ queue_url = ""           # the sqs lane; or $FACTORY_QUEUE_URL
 ## Must not infer
 
 - Don't read environment variables for config. The exceptions are the API key an endpoint names in `api_key_env`
-  and `$FACTORY_QUEUE_URL`, read by `factory.dispatch` when `queue_url` is empty.
+  and `$FACTORY_QUEUE_URL`, read by `factory.dispatch` when `queue_url` is empty. The CLI reads
+  `$FACTORY_CONFIG` as the overlay path; `Config.load` itself reads no environment.
 - Never put API keys in `factory.toml`.

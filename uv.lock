@@ -13,7 +13,7 @@ source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "pydantic" },
-    { name = "pydantic-ai-harness", extra = ["anthropic"] },
+    { name = "pydantic-ai-harness", extra = ["anthropic", "skills"] },
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "typer" },
 ]
@@ -39,7 +39,7 @@ requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.2.159" },
     { name = "logfire", marker = "extra == 'logfire'", specifier = ">=4" },
     { name = "pydantic", specifier = ">=2.13" },
-    { name = "pydantic-ai-harness", extras = ["anthropic"], specifier = ">=0.34" },
+    { name = "pydantic-ai-harness", extras = ["anthropic", "skills"], specifier = ">=0.34" },
     { name = "pydantic-ai-slim", extras = ["openai"] },
     { name = "typer", specifier = ">=0.16" },
 ]
@@ -1033,6 +1033,9 @@ wheels = [
 [package.optional-dependencies]
 anthropic = [
     { name = "pydantic-ai-slim", extra = ["anthropic"] },
+]
+skills = [
+    { name = "pyyaml" },
 ]
 
 [[package]]

@@ -20,30 +20,40 @@ Runtime = Annotated[
     typer.Option(envvar="FACTORY_RUNTIME", help="Agent runtime: pydantic-ai (API keys) or claude (subscription)."),
 ]
 UseInbox = Annotated[bool, typer.Option("--inbox", help="Wait for answers in the dashboard or `factory answer`.")]
+Overlay = Annotated[
+    Path | None,
+    typer.Option("--config", envvar="FACTORY_CONFIG", help="A factory.toml whose settings win over the repo's."),
+]
+Report = Annotated[
+    str | None,
+    typer.Option(envvar="FACTORY_REPORT_URL", help="SQS queue told the outcome when the run stops (AWS)."),
+]
 
 
 @app.command()
 def run(
-    source: Annotated[str, typer.Argument(help="Task text, a markdown file, #issue or an issue url.")],
+    source: Annotated[str, typer.Argument(help="Task text, a markdown file, #issue, an issue url or task JSON.")],
     repo: Repo = Path(),
     grill: Annotated[bool, typer.Option(help="Let the planner ask you questions.")] = False,
     review_spec: Annotated[bool, typer.Option(help="Approve the spec before implementation.")] = False,
     review_code: Annotated[bool, typer.Option(help="Approve the changes before shipping.")] = False,
     inbox: UseInbox = False,
     runtime: Runtime = None,
+    config: Overlay = None,
+    report: Report = None,
 ) -> None:
     """Take a task from intake to a branch or pull request."""
     repo = repo.resolve()
-    config = _config(repo, inbox, runtime)
-    config.human.grill |= grill
-    config.human.spec |= review_spec
-    config.human.code |= review_code
-    _execute(Run.start(intake(source, cwd=repo), repo), config)
+    settings = _config(repo, inbox, runtime, config)
+    settings.human.grill |= grill
+    settings.human.spec |= review_spec
+    settings.human.code |= review_code
+    _execute(Run.start(intake(source, cwd=repo), repo), settings, report)
 
 
 @app.command()
 def submit(
-    source: Annotated[str, typer.Argument(help="Task text, a markdown file, #issue or an issue url.")],
+    source: Annotated[str, typer.Argument(help="Task text, a markdown file, #issue, an issue url or task JSON.")],
     label: Annotated[
         list[str] | None, typer.Option(help="Task label. dispatch.labels in factory.toml maps labels to a lane.")
     ] = None,
@@ -58,11 +68,11 @@ def submit(
 
 
 @app.command()
-def worker(repo: Repo = Path(), runtime: Runtime = None) -> None:
+def worker(repo: Repo = Path(), runtime: Runtime = None, config: Overlay = None) -> None:
     """Run tasks from the SQS queue, one at a time, until stopped."""
     repo = repo.resolve()
     _observe()
-    dispatch.work(repo, _config(repo, inbox=True, runtime=runtime))
+    dispatch.work(repo, _config(repo, inbox=True, runtime=runtime, overlay=config))
 
 
 @app.command()
@@ -73,6 +83,8 @@ def resume(
     guidance: Annotated[str | None, typer.Option(help="Advice for the agent on the step it resumes.")] = None,
     inbox: UseInbox = False,
     runtime: Runtime = None,
+    config: Overlay = None,
+    report: Report = None,
 ) -> None:
     """Continue a stopped run, optionally rewinding to a step and giving guidance."""
     repo = repo.resolve()
@@ -80,7 +92,7 @@ def resume(
     if step:
         run.rewind(step)
     run.guidance = guidance
-    _execute(run, _config(repo, inbox, runtime))
+    _execute(run, _config(repo, inbox, runtime, config), report)
 
 
 @app.command("inbox")
@@ -143,8 +155,10 @@ def ui(
         server.shutdown()
 
 
-def _config(repo: Path, inbox: bool, runtime: Literal["pydantic-ai", "claude"] | None = None) -> Config:
-    config = Config.load(repo)
+def _config(
+    repo: Path, inbox: bool, runtime: Literal["pydantic-ai", "claude"] | None = None, overlay: Path | None = None
+) -> Config:
+    config = Config.load(repo, overlay)
     if runtime:
         config.runtime = runtime
     if inbox:
@@ -159,12 +173,19 @@ def _load(repo: Path, run_id: str) -> Run:
         raise typer.BadParameter(f"no run {run_id!r} in {repo}; see `factory show`") from None
 
 
-def _execute(run: Run, config: Config) -> None:
+def _execute(run: Run, config: Config, report: str | None = None) -> None:
     _observe()
     typer.echo(f"run {run.id}")
-    run = Pipeline(run, config).execute()
+    try:
+        run = Pipeline(run, config).execute()
+    except Exception:
+        if not report:
+            raise
+        logging.exception("run %s failed", run.id)
     typer.echo(f"\n{run.status}: factory show {run.id}")
-    if run.status is not Status.DONE:
+    if report:
+        dispatch.report(run, report)  # the queue has the outcome; exit 0 so nothing reports it twice
+    elif run.status is not Status.DONE:
         raise typer.Exit(1)
 
 

@@ -9,10 +9,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY factory ./factory
+COPY infra/ticket.sh /usr/local/bin/factory-ticket
 RUN uv sync --frozen --no-dev --extra logfire --extra aws
 ENV PATH="/app/.venv/bin:$PATH"
 
 RUN useradd --create-home factory \
+ && install -d -o factory -g factory /factory \
  && git config --system --add safe.directory '*'
 USER factory
 RUN git config --global user.name "Agent Factory" \

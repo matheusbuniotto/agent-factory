@@ -90,6 +90,14 @@ To use webhooks, set `FACTORY_TOKEN` and point GitHub, Linear or Jira at
 starts a run when it is created with the `factory` label (`dispatch.trigger`),
 or when that label is added. See [factory.dispatch](docs/design/factory.dispatch.md).
 
+### On AWS, from Jira
+
+[`infra/`](infra) deploys the factory into a closed VPC with Terraform. A
+Lambda polls Jira, starts one Fargate Spot task per ready ticket on Bedrock
+models, and writes the PR link back to the ticket. Try the whole stack locally
+on [floci](https://floci.io) with `cd infra && make local`. See
+[docs/aws.md](docs/aws.md).
+
 ## Customise
 
 Add a `factory.toml` to the target repo (see

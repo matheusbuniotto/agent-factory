@@ -1,5 +1,6 @@
 """A run: one task on its way through the factory, saved after every step."""
 
+import os
 import re
 import secrets
 from datetime import UTC, datetime
@@ -80,8 +81,10 @@ class Run(BaseModel):
 
     @classmethod
     def start(cls, task: Task, repo: Path) -> "Run":
-        slug = re.sub(r"[^a-z0-9]+", "-", task.title.lower()).strip("-")[:40].strip("-")
-        run_id = f"{_now():%Y%m%d-%H%M%S}-{slug or 'task'}-{secrets.token_hex(2)}"  # unique even for parallel runs
+        slug = re.sub(r"[^a-z0-9]+", "-", task.title.lower()).strip("-")[:40].strip("-") or "task"
+        if task.key:
+            slug = f"{task.key}-{slug}"
+        run_id = f"{_now():%Y%m%d-%H%M%S}-{slug}-{secrets.token_hex(2)}"  # unique even for parallel runs
         run = cls(id=run_id, task=task, repo=repo.resolve())
         run.write("task.md", task.to_markdown())
         return run
@@ -139,6 +142,9 @@ class Run(BaseModel):
 
 
 def runs_dir(repo: Path) -> Path:
+    """`<repo>/.factory/runs`, or `$FACTORY_HOME/runs` when every run shares one folder (EFS on AWS)."""
+    if shared := os.environ.get("FACTORY_HOME"):
+        return Path(shared) / "runs"
     home = repo / ".factory"
     home.mkdir(exist_ok=True)
     (home / ".gitignore").write_text("*\n")

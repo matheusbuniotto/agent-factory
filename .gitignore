@@ -5,3 +5,11 @@ __pycache__/
 .ruff_cache/
 evals/report.json
 .env
+
+# Terraform
+infra/build/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example

@@ -107,6 +107,15 @@ def test_claude_runtime_refuses_other_providers(repo: Path):
         ClaudeCrew(Config.load(repo), repo)
 
 
+def test_bedrock_models_run_on_aws(repo: Path, spec: Spec, monkeypatch: pytest.MonkeyPatch):
+    (repo / "factory.toml").write_text('[models]\nscribe = "bedrock:us.anthropic.claude-haiku-4-5-20251001-v1:0"\n')
+    crew, fake = claude(repo, monkeypatch, "eli5")
+    crew.explain(Task(title="t", body="b"), spec, "diff", None)
+    _, options = fake.calls[0]
+    assert options.model == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert options.env == {"CLAUDE_CODE_USE_BEDROCK": "1"}
+
+
 def test_runtime_is_chosen_by_config(repo: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "unused")
     config = Config.load(repo)

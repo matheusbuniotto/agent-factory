@@ -5,3 +5,6 @@
 tests
 evals
 docs
+infra/build
+infra/*/.terraform
+infra/*/terraform.tfstate*

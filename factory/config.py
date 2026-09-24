@@ -75,8 +75,19 @@ class Config(Settings):
     dispatch: Dispatch = Dispatch()
 
     @classmethod
-    def load(cls, repo: Path) -> "Config":
-        path = repo / "factory.toml"
-        config = cls.model_validate(tomllib.loads(path.read_text()) if path.exists() else {})
+    def load(cls, repo: Path, overlay: Path | None = None) -> "Config":
+        """The repo's `factory.toml`, with an operator's `overlay` file on top: its keys win, table by table."""
+        config = cls.model_validate(_merge(_read(repo / "factory.toml"), _read(overlay) if overlay else {}))
         config.skills = [BUNDLED_SKILLS, *(repo / skill for skill in config.skills)]
         return config
+
+
+def _read(path: Path) -> dict:
+    return tomllib.loads(path.read_text()) if path.exists() else {}
+
+
+def _merge(base: dict, over: dict) -> dict:
+    merged = dict(base)
+    for key, value in over.items():
+        merged[key] = _merge(base[key], value) if isinstance(value, dict) and key in base else value
+    return merged
