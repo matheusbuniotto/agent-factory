@@ -1,0 +1,30 @@
+[
+  {
+    "name": "add-function",
+    "task": "Add a subtract(a, b) function to calc.py, with a test.",
+    "files": {
+      "calc.py": "def add(a, b):\n    return a + b\n",
+      "test_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    },
+    "checks": ["python -m pytest -q"],
+    "expect": "python -c 'from calc import subtract; assert subtract(5, 3) == 2'"
+  },
+  {
+    "name": "fix-bug",
+    "task": "Bug: greet('Ana') returns 'Hello Ana' but must return 'Hello, Ana!'.",
+    "files": {
+      "greet.py": "def greet(name):\n    return 'Hello ' + name\n"
+    },
+    "checks": ["python -m pytest -q"],
+    "expect": "python -c \"from greet import greet; assert greet('Ana') == 'Hello, Ana!'\""
+  },
+  {
+    "name": "data-dedupe",
+    "task": "Add clean.dedupe(rows) that drops rows whose 'id' was already seen, keeping the first one and the original order.",
+    "files": {
+      "clean.py": "\"\"\"Row cleaning helpers.\"\"\"\n"
+    },
+    "checks": ["python -m pytest -q"],
+    "expect": "python -c \"from clean import dedupe; assert dedupe([{'id': 1, 'v': 'a'}, {'id': 2}, {'id': 1, 'v': 'b'}]) == [{'id': 1, 'v': 'a'}, {'id': 2}]\""
+  }
+]

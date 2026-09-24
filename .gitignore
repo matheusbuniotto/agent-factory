@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.factory/
+.pytest_cache/
+.ruff_cache/
+evals/report.json
+.env

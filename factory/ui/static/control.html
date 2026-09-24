@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Factory</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #11141b; --panel-2: #161a23; --line: #232838; --text: #e6e8ee; --muted: #8a91a5; --faint: #5b6275;
+    --blue: #5b9dff; --green: #3ecf8e; --amber: #f5b544; --red: #ff6b6b; --violet: #a78bfa;
+    --prepare: #94a3b8; --plan: #a78bfa; --implement: #5b9dff; --review: #f5b544; --ship: #3ecf8e; --learn: #f472b6;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; display: grid; grid-template-rows: 48px 1fr; overflow: hidden; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  button, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--faint); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #06101f; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: default; }
+  select { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+  kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+  .spacer { flex: 1; }
+  .muted { color: var(--muted); } .faint { color: var(--faint); }
+
+  /* status + step colours */
+  .s-done { --c: var(--green); } .s-running { --c: var(--blue); } .s-escalated { --c: var(--amber); } .s-failed { --c: var(--red); } .s-pending { --c: var(--line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--faint)); flex: none; }
+  .dot.s-running { animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 70%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  .span { position: absolute; background: var(--c); border-radius: 3px; min-width: 3px; }
+  .span.running { background: repeating-linear-gradient(-45deg, var(--c), var(--c) 5px, color-mix(in srgb, var(--c) 55%, var(--bg)) 5px, color-mix(in srgb, var(--c) 55%, var(--bg)) 10px); background-size: 14px 14px; animation: march .8s linear infinite; }
+  .span.escalated, .span.failed { background: repeating-linear-gradient(-45deg, transparent, transparent 4px, color-mix(in srgb, var(--s) 35%, transparent) 4px, color-mix(in srgb, var(--s) 35%, transparent) 8px); outline: 1.5px solid var(--s); outline-offset: -1.5px; }
+  .span.escalated { --s: var(--amber); } .span.failed { --s: var(--red); }
+  @keyframes march { to { background-position: 14px 0; } }
+
+  /* header */
+  header { display: flex; align-items: center; gap: 14px; padding: 0 14px 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .brand { font-weight: 650; display: flex; gap: 8px; align-items: center; }
+  .brand i { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(var(--blue), var(--violet), var(--green), var(--blue)); }
+  .views { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .views button { border: 0; background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 6px; }
+  .views button.on { background: var(--panel-2); color: var(--text); }
+  .chip { font: 11.5px var(--mono); padding: 2px 8px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.status { color: var(--c); border-color: color-mix(in srgb, var(--c) 45%, transparent); }
+  .inbox-btn { position: relative; display: flex; gap: 8px; align-items: center; }
+  .inbox-btn.hot { border-color: color-mix(in srgb, var(--amber) 60%, transparent); color: var(--amber); }
+  .count { min-width: 18px; height: 18px; border-radius: 9px; background: var(--amber); color: #1a1204; font: 600 11px/18px var(--mono); text-align: center; padding: 0 5px; }
+  .count:empty { display: none; }
+  .demo { font: 11px var(--mono); color: var(--violet); border: 1px dashed var(--violet); padding: 2px 8px; border-radius: 999px; }
+
+  main { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 0; }
+  main.fleet { grid-template-columns: minmax(0, 1fr); }
+  main.fleet aside, main.fleet .detail { display: none; }
+  main:not(.fleet) .fleet-view { display: none; }
+
+  /* run list */
+  aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+  .search { padding: 10px; border-bottom: 1px solid var(--line); position: relative; }
+  .search input { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 7px 10px; font: inherit; outline: none; }
+  .search input:focus { border-color: var(--blue); }
+  .search kbd { position: absolute; right: 18px; top: 17px; }
+  .list { overflow: auto; flex: 1; padding: 4px 0 12px; }
+  .group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 12px 14px 6px; display: flex; justify-content: space-between; }
+  .item { padding: 9px 14px; cursor: pointer; border-left: 2px solid transparent; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; }
+  .item:hover, .item.sel { background: var(--panel-2); }
+  .item.sel { border-left-color: var(--blue); }
+  .item .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .item .ask { font: 600 10.5px var(--mono); color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); border-radius: 4px; padding: 0 5px; }
+  .item .meta { grid-column: 2 / 4; color: var(--faint); font-size: 11.5px; display: flex; gap: 6px; }
+  .mini { grid-column: 2 / 4; position: relative; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 3px; }
+  .mini .span { top: 0; bottom: 0; border-radius: 0; }
+
+  /* run detail */
+  .detail { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding-bottom: 18px; }
+  .head { padding: 16px 22px 12px; display: flex; gap: 16px; align-items: flex-start; }
+  .head > div:first-child { min-width: 0; }
+  .head h1 { font-size: 18px; margin: 0 0 7px; font-weight: 620; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; flex: none; }
+
+  /* needs */
+  .need { margin: 0 22px 12px; border: 1px solid color-mix(in srgb, var(--k) 50%, transparent); background: color-mix(in srgb, var(--k) 7%, var(--panel)); border-radius: 10px; padding: 12px 14px; --k: var(--amber); }
+  .need.k-question { --k: var(--violet); } .need.k-spec, .need.k-code { --k: var(--blue); }
+  .need-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .need-head .badge { font: 600 11px var(--mono); color: var(--k); text-transform: uppercase; letter-spacing: .05em; }
+  .need-head .run-link { color: var(--text); font-weight: 550; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .need-head .age { margin-left: auto; color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .need-text { font-size: 14px; line-height: 1.5; margin-bottom: 10px; overflow-wrap: anywhere; }
+  .need textarea { width: 100%; min-height: 56px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; outline: none; }
+  .need textarea:focus { border-color: var(--k); }
+  .need-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .need-actions .hint { margin-left: auto; color: var(--faint); font-size: 11.5px; }
+  .need button.primary { background: var(--k); border-color: var(--k); }
+  .need.shake { animation: shake .3s; }
+  @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+  /* waterfall */
+  .waterfall { margin: 2px 22px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 0; }
+  .wf { display: grid; grid-template-columns: 100px minmax(0, 1fr) 72px minmax(0, 1.1fr); align-items: center; gap: 12px; height: 30px; padding: 0 14px; }
+  .wf .n { text-transform: capitalize; font-weight: 560; display: flex; align-items: center; gap: 8px; }
+  .wf .n::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+  .wf.s-pending .n { color: var(--faint); }
+  .track { position: relative; height: 12px; background: var(--panel-2); border-radius: 3px; }
+  .track .span { top: 0; bottom: 0; }
+  .mark { position: absolute; top: -3px; width: 2px; height: 18px; border-radius: 1px; background: var(--muted); }
+  .mark.warn { background: var(--amber); } .mark.error { background: var(--red); }
+  .wf .dur { font: 11.5px var(--mono); color: var(--muted); text-align: right; }
+  .wf .note { color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wf.s-escalated .note, .wf.s-failed .note { color: var(--amber); }
+
+  /* log + artifacts */
+  .panes { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; padding: 0 22px; min-height: 360px; flex: 1; }
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; max-height: 70vh; }
+  .pane-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .pane-head b { color: var(--text); font-weight: 600; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-left: auto; }
+  .seg button { border: 0; border-radius: 0; background: transparent; padding: 3px 9px; color: var(--muted); }
+  .seg button.on { background: var(--panel-2); color: var(--text); }
+  .log { overflow: auto; flex: 1; font: 12px/1.65 var(--mono); padding: 8px 0; }
+  .line { display: grid; grid-template-columns: 62px 78px minmax(0, 1fr); gap: 10px; padding: 0 12px; }
+  .line:hover { background: var(--panel-2); }
+  .line .t { color: var(--faint); } .line .st { color: var(--c); } .line .m { overflow-wrap: anywhere; }
+  .line.warn .m { color: var(--amber); } .line.error .m { color: var(--red); } .line.debug .m { color: var(--muted); }
+  .line.human .m { color: var(--violet); }
+  .follow { font: 11px var(--mono); color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { border: 0; background: transparent; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 6px 10px; white-space: nowrap; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--blue); }
+  .doc { overflow: auto; padding: 4px 18px 18px; flex: 1; }
+  .doc h1 { font-size: 16px; } .doc h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 18px; }
+  .doc pre { background: var(--bg); border: 1px solid var(--line); padding: 10px; border-radius: 8px; overflow: auto; font: 12px var(--mono); }
+  .doc code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .doc pre code { background: none; padding: 0; }
+  .empty { color: var(--faint); display: grid; place-items: center; min-height: 120px; text-align: center; padding: 20px; }
+
+  /* fleet */
+  .fleet-view { overflow: auto; padding: 18px 22px 40px; }
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .kpi .k { color: var(--muted); font-size: 12px; }
+  .kpi .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; letter-spacing: -.02em; }
+  .kpi .v small { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .kpi.warn .v { color: var(--amber); } .kpi.warn { cursor: pointer; }
+  .ring { display: flex; align-items: center; gap: 10px; } .ring svg { transform: rotate(-90deg); }
+  .share { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 10px 0 8px; background: var(--panel-2); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--c); margin-right: 5px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .gantt { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+  .g-head { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 6px 14px; color: var(--faint); font-size: 11.5px; }
+  .axis { position: relative; height: 28px; border-bottom: 1px solid var(--line); }
+  .axis span { position: absolute; top: 7px; transform: translateX(-50%); font: 11px var(--mono); color: var(--faint); }
+  .g-label { height: 38px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--panel-2); cursor: pointer; min-width: 0; }
+  .g-label .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .g-label .d { margin-left: auto; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+  .g-row { position: relative; height: 38px; border-bottom: 1px solid var(--panel-2); cursor: pointer; }
+  .g-label:hover, .g-row:hover { background: var(--panel-2); }
+  .g-row .span { top: 11px; height: 16px; }
+  .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--panel-2); pointer-events: none; }
+  .now { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--red); opacity: .6; pointer-events: none; }
+  .flag { position: absolute; top: 11px; font-size: 11px; font-weight: 600; color: var(--amber); white-space: nowrap; }
+
+  /* inbox drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 9; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 94vw); background: var(--panel); border-left: 1px solid var(--line); z-index: 10; transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+  body.inbox-open .scrim { opacity: 1; pointer-events: auto; } body.inbox-open .drawer { transform: none; }
+  .drawer-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .drawer-head h2 { font-size: 15px; margin: 0; }
+  .drawer-body { overflow: auto; padding: 14px 0 30px; flex: 1; }
+  .drawer .need { margin: 0 16px 12px; }
+
+  /* toasts + tooltip */
+  .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
+  .toast { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--k, var(--green)); border-radius: 8px; padding: 10px 12px; width: 340px; box-shadow: 0 10px 30px rgba(0,0,0,.4); cursor: pointer; animation: slide .2s ease; }
+  .toast b { display: block; margin-bottom: 2px; }
+  @keyframes slide { from { transform: translateY(8px); opacity: 0; } }
+  .tip { position: fixed; pointer-events: none; z-index: 30; background: #000; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 320px; opacity: 0; }
+  .tip b { text-transform: capitalize; } .tip .m { color: var(--muted); font-family: var(--mono); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i> Agent Factory</div>
+  <div class="views" id="views"><button data-view="runs" class="on">Runs <kbd>1</kbd></button><button data-view="fleet">Fleet <kbd>2</kbd></button></div>
+  <span class="chip" id="live"></span>
+  <div class="spacer"></div>
+  <span class="demo" id="demo" hidden>demo data</span>
+  <button id="alerts" title="Desktop notifications when an agent needs you"></button>
+  <button class="inbox-btn" id="inbox-btn" title="Inbox (i)">Inbox <span class="count" id="count"></span></button>
+</header>
+<main id="main">
+  <aside>
+    <div class="search"><input id="q" placeholder="Filter runs…" autocomplete="off"><kbd>/</kbd></div>
+    <div class="list" id="list"></div>
+  </aside>
+  <section class="detail" id="detail"><div class="empty">Select a run</div></section>
+  <section class="fleet-view" id="fleet"></section>
+</main>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer"></aside>
+<div class="toasts" id="toasts"></div>
+<div class="tip" id="tip"></div>
+
+<script src="/static/common.js" onerror="this.onerror=null;this.src='common.js'"></script>
+<script>
+// ---------- state ----------
+const params = new URLSearchParams(location.search);
+const ui = {
+  runs: [], run: null, view: params.get("view") ?? "runs", selected: params.get("run"), query: "",
+  level: "all", follow: true, tab: null, rewind: null, range: "6h", inbox: false,
+  drafts: {}, seen: null, alerts: localStorage.getItem("factory.alerts") === "on",
+};
+const RANGES = { "1h": 60, "6h": 360, "24h": 1440, all: null };
+const $ = (id) => document.getElementById(id);
+const color = (step) => `var(--${step})`;
+const ms = (iso) => new Date(iso).getTime();
+
+// ---------- shared pieces ----------
+
+// A run's steps as spans on its own clock: where its time went, at a glance.
+function spans(run, cls = "") {
+  const start = ms(run.steps.find((s) => s.started_at)?.started_at ?? run.created_at);
+  const total = Math.max(runDuration(run) ?? 0, 1);
+  return run.steps.filter((s) => s.started_at).map((s) => {
+    const left = ((ms(s.started_at) - start) / total) * 100;
+    const width = Math.max(((stepDuration(s) ?? 0) / total) * 100, 1.2);
+    return `<div class="span ${s.status} ${cls}" style="left:${left}%;width:${width}%;--c:${color(s.name)}" data-run="${run.id}" data-step="${s.name}"></div>`;
+  }).join("");
+}
+
+function needCard(run, need, inDrawer) {
+  const key = needKey(run, need);
+  const draft = esc(ui.drafts[key] ?? "");
+  const head = `<div class="need-head"><span class="badge">${NEED_LABEL[need.kind] ?? need.kind}${need.step ? ` · ${need.step}` : ""}</span>
+    ${inDrawer ? `<span class="run-link" data-open="${run.id}">${esc(run.title)}</span>` : ""}<span class="age">${ago(need.asked_at)}</span></div>`;
+  const field = (placeholder) => `<textarea data-draft="${key}" placeholder="${placeholder}">${draft}</textarea>`;
+  const body = {
+    question: () => `${field("Answer the agent…")}
+      <div class="need-actions"><button class="primary" data-act="answer">Send answer</button><button data-act="skip">Let the agent decide</button><span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> send</span></div>`,
+    spec: () => `<div class="need-actions" style="margin:0 0 8px"><button class="primary" data-act="approve">Approve</button><button data-act="read" data-tab="spec.md">Read the spec</button></div>
+      ${field("…or describe the changes you want")}<div class="need-actions"><button data-act="changes">Request changes</button><span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> send</span></div>`,
+    code: () => `<div class="need-actions" style="margin:0 0 8px"><button class="primary" data-act="approve">Approve and ship</button><button data-act="read" data-tab="diff.md">Read the diff</button></div>
+      ${field("…or describe the changes you want")}<div class="need-actions"><button data-act="changes">Request changes</button><span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> send</span></div>`,
+    escalation: () => `${field("Guidance for the agent (optional): what it missed, what to try…")}
+      <div class="need-actions"><button class="primary" data-act="resume">Resume</button><span class="muted">from</span>
+        <select data-step>${STEPS.map((s) => `<option ${s === need.step ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <button data-act="read" data-tab="${STEP_ARTIFACT[need.step]}">See ${STEP_ARTIFACT[need.step]}</button><span class="hint"><kbd>⌘</kbd><kbd>↵</kbd> resume</span></div>`,
+  }[need.kind]?.() ?? "";
+  return `<div class="need k-${need.kind}" data-run="${run.id}" data-need="${need.id}" data-kind="${need.kind}" data-key="${key}">
+    ${head}<div class="need-text">${esc(need.text)}</div>${body}</div>`;
+}
+
+// Re-rendering replaces the DOM every couple of seconds; keep whatever the human is typing.
+function keepFocus(render) {
+  const active = document.activeElement;
+  const key = active?.dataset?.draft;
+  const caret = key && [active.selectionStart, active.selectionEnd];
+  render();
+  if (!key) return;
+  const again = document.querySelector(`[data-draft="${CSS.escape(key)}"]`);
+  if (again) { again.focus(); again.setSelectionRange(...caret); }
+}
+
+// ---------- runs view ----------
+
+function groups() {
+  const q = ui.query.toLowerCase();
+  const visible = ui.runs.filter((r) => !q || r.title.toLowerCase().includes(q) || r.id.includes(q));
+  return [
+    ["Needs you", visible.filter((r) => r.needs?.length)],
+    ["Running", visible.filter((r) => isActive(r) && !r.needs?.length)],
+    ["Finished", visible.filter((r) => !isActive(r) && !r.needs?.length)],
+  ].filter(([, list]) => list.length);
+}
+const ordered = () => groups().flatMap(([, list]) => list);
+
+function renderList() {
+  $("list").innerHTML = groups().map(([name, list]) => `
+    <div class="group"><span>${name}</span><span>${list.length}</span></div>
+    ${list.map((r) => `
+      <div class="item ${r.id === ui.selected ? "sel" : ""}" data-id="${r.id}">
+        <span class="dot s-${r.status}"></span>
+        <div class="title" title="${esc(r.title)}">${esc(r.title)}</div>
+        ${r.needs?.length ? `<span class="ask">${r.needs.length > 1 ? `${r.needs.length} asks` : NEED_LABEL[r.needs[0].kind].toLowerCase()}</span>` : "<span></span>"}
+        <div class="mini">${spans(r)}</div>
+        <div class="meta"><span>${r.step ?? "shipped"}</span><span>·</span><span>${duration(runDuration(r)) || "–"}</span><span>·</span><span>${ago(r.created_at)}</span>${r.kind ? `<span>·</span><span>${r.kind}</span>` : ""}</div>
+      </div>`).join("")}`).join("") || `<div class="empty">No runs yet.<br><code>factory run "your task"</code></div>`;
+}
+
+function renderDetail() {
+  const run = ui.run, el = $("detail");
+  if (!run) { el.innerHTML = `<div class="empty">Select a run</div>`; return; }
+  const logScroll = el.querySelector(".log")?.scrollTop;
+  const names = artifactNames(run);
+  ui.tab = run.artifacts[ui.tab] ? ui.tab : focusArtifact(run);
+  const start = ms(run.steps.find((s) => s.started_at)?.started_at ?? run.created_at);
+  const total = Math.max(runDuration(run) ?? 0, 1);
+  const pos = (t) => ((ms(t) - start) / total) * 100;
+  const events = run.events.filter((e) => ui.level === "all" || (ui.level === "issues" ? ["warn", "error"].includes(e.level) : e.level !== "debug"));
+
+  el.innerHTML = `
+    <div class="head">
+      <div>
+        <h1>${esc(run.title)}</h1>
+        <div class="chips">
+          <span class="chip status s-${run.status}">${run.status}${run.step && run.status !== "done" ? ` · ${run.step}` : ""}</span>
+          ${run.kind ? `<span class="chip">${run.kind} · ${run.size}</span>` : ""}
+          <span class="chip">${run.url ? `<a href="${esc(run.url)}" target="_blank">${run.source} ↗</a>` : run.source}</span>
+          <span class="chip">⏱ ${duration(runDuration(run)) || "–"}</span>
+          ${run.branch ? `<span class="chip" title="${esc(run.workspace ?? "")}">${esc(run.branch)}</span>` : ""}
+          ${run.pr_url ? `<span class="chip"><a href="${esc(run.pr_url)}" target="_blank">pull request ↗</a></span>` : ""}
+        </div>
+      </div>
+      <div class="actions">
+        <select id="rewind" title="Step to rewind to">${STEPS.map((s) => `<option ${s === (ui.rewind ?? run.step ?? "implement") ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <button id="copy">Copy resume</button>
+      </div>
+    </div>
+    ${(run.needs ?? []).map((need) => needCard(run, need, false)).join("")}
+    <div class="waterfall">${run.steps.map((s) => {
+      const marks = run.events.filter((e) => e.step === s.name && ["warn", "error"].includes(e.level))
+        .map((e) => `<i class="mark ${e.level}" style="left:${pos(e.at)}%" data-tip="${esc(`${clock(e.at)}  ${e.message}`)}"></i>`).join("");
+      const span = s.started_at ? `<div class="span ${s.status}" style="left:${pos(s.started_at)}%;width:${Math.max(((stepDuration(s) ?? 0) / total) * 100, 0.8)}%;--c:${color(s.name)}"></div>` : "";
+      return `<div class="wf s-${s.status}" style="--c:${color(s.name)}"><span class="n">${s.name}</span><div class="track">${span}${marks}</div>
+        <span class="dur">${s.started_at ? duration(stepDuration(s)) : "—"}</span><span class="note" title="${esc(s.note)}">${esc(s.note || (s.status === "running" ? "working…" : ""))}</span></div>`;
+    }).join("")}</div>
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-head"><b>Activity</b><span>${run.events.length}</span>
+          <label class="follow"><input type="checkbox" id="follow" ${ui.follow ? "checked" : ""}> follow <kbd>f</kbd></label>
+          <div class="seg">${["all", "steps", "issues"].map((l) => `<button data-level="${l}" class="${ui.level === l ? "on" : ""}">${l}</button>`).join("")}</div>
+        </div>
+        <div class="log">${events.map((e) => `
+          <div class="line ${e.level} ${/human/.test(e.message) ? "human" : ""}" style="--c:${color(e.step ?? "prepare")}">
+            <span class="t">${clock(e.at)}</span><span class="st">${e.step ?? ""}</span><span class="m">${esc(e.message)}</span></div>`).join("") || `<div class="empty">No events</div>`}
+          ${run.status === "running" ? `<div class="line debug"><span class="t"></span><span class="st"></span><span class="m">▍</span></div>` : ""}
+        </div>
+      </div>
+      <div class="pane">
+        <div class="tabs">${names.map((a) => `<button data-tab="${a}" class="${a === ui.tab ? "on" : ""}">${a.replace(".md", "")}</button>`).join("")}</div>
+        <div class="doc">${ui.tab ? md(run.artifacts[ui.tab]) : `<div class="empty">No artifacts yet</div>`}</div>
+      </div>
+    </div>`;
+
+  const log = el.querySelector(".log");
+  log.scrollTop = ui.follow ? log.scrollHeight : logScroll ?? 0;
+  $("rewind").onchange = (e) => (ui.rewind = e.target.value);
+  $("copy").onclick = (e) => copy(`factory resume ${run.id} --from ${$("rewind").value}`, e.target);
+  $("follow").onchange = (e) => (ui.follow = e.target.checked);
+  el.querySelectorAll("[data-level]").forEach((b) => (b.onclick = () => { ui.level = b.dataset.level; renderDetail(); }));
+  el.querySelectorAll(".tabs [data-tab]").forEach((b) => (b.onclick = () => { ui.tab = b.dataset.tab; renderDetail(); }));
+}
+
+// ---------- fleet view ----------
+
+function renderFleet() {
+  const runs = ui.runs, s = stats(runs);
+  const tries = runs.map(attempt).filter(Boolean);
+  const avgTries = tries.length ? (tries.reduce((a, b) => a + b, 0) / tries.length).toFixed(1) : "–";
+  const totals = Object.fromEntries(STEPS.map((step) => [step, 0]));
+  runs.forEach((r) => r.steps.forEach((st) => (totals[st.name] += stepDuration(st) ?? 0)));
+  const all = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+  const C = 2 * Math.PI * 15, waiting = allNeeds(runs).length;
+
+  const end = Date.now(), minutes = RANGES[ui.range];
+  const earliest = Math.min(...runs.map((r) => ms(r.created_at)), end - 30 * MIN);
+  const win = { start: minutes ? end - minutes * MIN : earliest - 2 * MIN, end: end + (minutes ?? 60) * MIN * 0.03 };
+  const pct = (t) => ((t - win.start) / (win.end - win.start)) * 100;
+  const step = [5, 10, 15, 30, 60, 120, 240, 360].map((m) => m * MIN).find((x) => (win.end - win.start) / x <= 8) ?? 720 * MIN;
+  const ticks = [];
+  for (let t = Math.ceil(win.start / step) * step; t < win.end; t += step) ticks.push(t);
+  const visible = runs.filter((r) => ms(r.created_at) + (runDuration(r) ?? 0) > win.start || isActive(r));
+  const grid = ticks.map((t) => `<div class="tick" style="left:${pct(t)}%"></div>`).join("") + `<div class="now" style="left:${pct(end)}%"></div>`;
+
+  $("fleet").innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="k">Runs</div><div class="v">${s.total} <small>${s.active} live</small></div></div>
+      <div class="kpi"><div class="k">Success rate</div><div class="ring">
+        <svg width="36" height="36"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--panel-2)" stroke-width="5"/>
+        <circle cx="18" cy="18" r="15" fill="none" stroke="var(--green)" stroke-width="5" stroke-dasharray="${((s.successRate ?? 0) / 100) * C} ${C}" stroke-linecap="round"/></svg>
+        <div class="v">${s.successRate ?? "–"}<small>%</small></div></div></div>
+      <div class="kpi"><div class="k">Median lead time</div><div class="v">${s.medianLead ? duration(s.medianLead) : "–"}</div></div>
+      <div class="kpi ${waiting ? "warn" : ""}" data-inbox><div class="k">Waiting on you</div><div class="v">${waiting}</div></div>
+      <div class="kpi"><div class="k">Avg implement attempts</div><div class="v">${avgTries} <small>of 3</small></div></div>
+      <div class="kpi"><div class="k">Where the time goes</div>
+        <div class="share">${STEPS.map((st) => `<i style="width:${(totals[st] / all) * 100}%;background:${color(st)}"></i>`).join("")}</div>
+        <div class="legend">${STEPS.map((st) => `<span style="--c:${color(st)}">${st} ${Math.round((totals[st] / all) * 100)}%</span>`).join("")}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><b>Timeline</b><span class="muted">${visible.length} of ${runs.length} runs</span><div class="spacer"></div>
+        <div class="seg" style="margin:0">${Object.keys(RANGES).map((r) => `<button data-range="${r}" class="${ui.range === r ? "on" : ""}">${r}</button>`).join("")}</div></div>
+      <div class="gantt">
+        <div class="g-head">run</div><div class="axis">${ticks.map((t) => `<span style="left:${pct(t)}%">${hhmm(t)}</span>`).join("")}</div>
+        ${visible.map((r) => {
+          const bars = r.steps.filter((st) => st.started_at).map((st) => {
+            const a = Math.max(pct(ms(st.started_at)), 0), b = Math.min(pct(ms(st.finished_at ?? new Date())), 100);
+            return b > 0 && a < 100 ? `<div class="span ${st.status}" style="left:${a}%;width:${Math.max(b - a, 0.25)}%;--c:${color(st.name)}" data-run="${r.id}" data-step="${st.name}"></div>` : "";
+          }).join("");
+          const stuck = r.steps.find((st) => st.status === "escalated" || st.status === "failed");
+          const flag = stuck ? `<span class="flag" style="left:calc(${Math.min(pct(ms(stuck.finished_at)), 94)}% + 6px)">⚑ ${stuck.name}</span>` : "";
+          return `<div class="g-label" data-open="${r.id}"><span class="dot s-${r.status}"></span><span class="t">${esc(r.title)}</span><span class="d">${duration(runDuration(r))}</span></div>
+                  <div class="g-row" data-open="${r.id}">${grid}${bars}${flag}</div>`;
+        }).join("") || `<div class="empty" style="grid-column:1/-1">No runs in this window</div>`}
+      </div>
+    </div>`;
+}
+
+// ---------- inbox, notifications ----------
+
+function renderInbox() {
+  const needs = allNeeds(ui.runs);
+  $("count").textContent = needs.length || "";
+  $("inbox-btn").classList.toggle("hot", needs.length > 0);
+  document.title = `${needs.length ? `(${needs.length}) ` : ""}Agent Factory`;
+  $("drawer").innerHTML = `
+    <div class="drawer-head"><h2>Inbox</h2><span class="muted">${needs.length ? `${needs.length} waiting on you` : ""}</span><div class="spacer"></div><button id="close-inbox" title="Close (Esc)">✕</button></div>
+    <div class="drawer-body">${needs.map((need) => needCard(need.run, need, true)).join("") ||
+      `<div class="empty">Nothing needs you.<br>The factory is working on its own.</div>`}</div>`;
+  $("close-inbox").onclick = () => toggleInbox(false);
+}
+
+function notifyNew() {
+  const needs = allNeeds(ui.runs);
+  const keys = needs.map((n) => needKey(n.run, n));
+  if (ui.seen === null) { ui.seen = new Set(keys); return; } // don't alert for what was already there
+  for (const need of needs.filter((n) => !ui.seen.has(needKey(n.run, n)))) {
+    const title = `${NEED_LABEL[need.kind]}: ${need.run.title}`;
+    toast(title, need.text, need.kind === "escalation" ? "var(--amber)" : "var(--violet)", () => openRun(need.run.id));
+    if (ui.alerts && window.Notification?.permission === "granted") {
+      const note = new Notification(title, { body: need.text, tag: needKey(need.run, need) });
+      note.onclick = () => { window.focus(); openRun(need.run.id); };
+    }
+  }
+  ui.seen = new Set(keys);
+}
+
+function toast(title, text, accent = "var(--green)", onclick) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.style.setProperty("--k", accent);
+  el.innerHTML = `<b>${esc(title)}</b><span class="muted">${esc(text)}</span>`;
+  el.onclick = () => { onclick?.(); el.remove(); };
+  $("toasts").append(el);
+  setTimeout(() => el.remove(), 7000);
+}
+
+function renderAlerts() {
+  const supported = "Notification" in window, granted = supported && Notification.permission === "granted";
+  $("alerts").textContent = ui.alerts && granted ? "🔔 Alerts on" : "🔕 Alerts off";
+  $("alerts").disabled = !supported || Notification.permission === "denied";
+}
+
+async function act(button) {
+  const card = button.closest(".need");
+  const { run, need, key, kind } = card.dataset;
+  const text = card.querySelector("textarea")?.value.trim() ?? "";
+  const action = button.dataset.act;
+  if (action === "read") return openRun(run, button.dataset.tab);
+  if ((action === "answer" || action === "changes") && !text) {
+    card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake");
+    return card.querySelector("textarea").focus();
+  }
+  card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    if (action === "resume") await Factory.resume(run, card.querySelector("[data-step]").value, text || null);
+    else await Factory.answer(run, need, action === "answer" || action === "changes" ? text : null);
+    delete ui.drafts[key];
+    const done = { resume: "Resumed. The agent is back at work", approve: "Approved", skip: "The agent will decide", answer: "Answer sent", changes: "Changes requested" }[action];
+    toast(done, kind === "escalation" ? "Follow it in the activity log." : "The run picks it up within a second.");
+    await refresh();
+  } catch (error) {
+    toast("Could not send", error.message, "var(--red)");
+    card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
+}
+
+// ---------- navigation ----------
+
+function setView(view) {
+  ui.view = view;
+  $("main").classList.toggle("fleet", view === "fleet");
+  $("views").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  syncUrl();
+  renderAll();
+}
+
+async function openRun(id, tab = null) {
+  ui.selected = id; ui.tab = tab; ui.rewind = null;
+  toggleInbox(false);
+  if (ui.view !== "runs") setView("runs");
+  syncUrl();
+  await refresh();
+}
+
+function toggleInbox(open = !ui.inbox) {
+  ui.inbox = open;
+  document.body.classList.toggle("inbox-open", open);
+  if (open) setTimeout(() => $("drawer").querySelector("textarea")?.focus(), 200);
+}
+
+function syncUrl() {
+  const next = new URLSearchParams(Factory.demo ? { demo: "" } : {});
+  if (ui.view !== "runs") next.set("view", ui.view);
+  if (ui.selected) next.set("run", ui.selected);
+  history.replaceState(null, "", `?${next}`.replace("demo=", "demo"));
+}
+
+function renderAll() {
+  keepFocus(() => {
+    $("live").innerHTML = `<b>${ui.runs.filter(isActive).length}</b> running · <b>${ui.runs.filter(needsHuman).length}</b> escalated`;
+    renderList();
+    if (ui.view === "runs") renderDetail(); else renderFleet();
+    renderInbox();
+  });
+  renderAlerts();
+}
+
+async function refresh() {
+  ui.runs = await Factory.runs();
+  $("demo").hidden = !Factory.demo;
+  if (!ui.runs.some((r) => r.id === ui.selected)) ui.selected = ordered()[0]?.id ?? null;
+  ui.run = ui.selected ? await Factory.run(ui.selected) : null;
+  notifyNew();
+  renderAll();
+}
+
+// ---------- events ----------
+
+$("views").onclick = (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); };
+$("list").onclick = (e) => { const item = e.target.closest(".item"); if (item) openRun(item.dataset.id); };
+$("q").oninput = (e) => { ui.query = e.target.value; renderAll(); };
+$("inbox-btn").onclick = () => toggleInbox();
+$("scrim").onclick = () => toggleInbox(false);
+$("alerts").onclick = async () => {
+  if (Notification.permission === "default") await Notification.requestPermission();
+  ui.alerts = Notification.permission === "granted" && !ui.alerts;
+  localStorage.setItem("factory.alerts", ui.alerts ? "on" : "off");
+  renderAlerts();
+};
+document.addEventListener("click", (e) => {
+  const button = e.target.closest("[data-act]");
+  if (button) return act(button);
+  const open = e.target.closest("[data-open]");
+  if (open) return openRun(open.dataset.open);
+  if (e.target.closest("[data-inbox]")) return toggleInbox(true);
+  const range = e.target.closest("[data-range]");
+  if (range) { ui.range = range.dataset.range; renderAll(); }
+});
+document.addEventListener("input", (e) => { if (e.target.dataset.draft) ui.drafts[e.target.dataset.draft] = e.target.value; });
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA") {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      const card = e.target.closest(".need");
+      const primary = e.target.value.trim() && card.querySelector('[data-act="changes"]') || card.querySelector("button.primary");
+      e.preventDefault(); act(primary);
+    }
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") { if (e.key === "Escape") e.target.blur(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const list = ordered(), i = list.findIndex((r) => r.id === ui.selected);
+  const keys = {
+    j: () => list[i + 1] && openRun(list[i + 1].id), ArrowDown: () => list[i + 1] && openRun(list[i + 1].id),
+    k: () => i > 0 && openRun(list[i - 1].id), ArrowUp: () => i > 0 && openRun(list[i - 1].id),
+    "/": () => { setView("runs"); $("q").focus(); }, f: () => { ui.follow = !ui.follow; renderAll(); },
+    i: () => toggleInbox(), 1: () => setView("runs"), 2: () => setView("fleet"), Escape: () => toggleInbox(false),
+  };
+  if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
+});
+const tip = $("tip");
+document.addEventListener("mousemove", (e) => {
+  const mark = e.target.closest("[data-tip]"), span = e.target.closest(".span[data-step]");
+  if (!mark && !span) { tip.style.opacity = 0; return; }
+  if (mark) tip.innerHTML = `<span class="m">${mark.dataset.tip}</span>`;
+  else {
+    const run = ui.runs.find((r) => r.id === span.dataset.run), step = run?.steps.find((s) => s.name === span.dataset.step);
+    if (!step) return;
+    tip.innerHTML = `<b>${step.name}</b> · ${step.status} · ${duration(stepDuration(step))}<div>${esc(run.title)}</div>${step.note ? `<div class="m">${esc(step.note)}</div>` : ""}`;
+  }
+  tip.style.left = `${Math.min(e.clientX + 14, innerWidth - 330)}px`;
+  tip.style.top = `${e.clientY + 14}px`;
+  tip.style.opacity = 1;
+});
+
+setView(ui.view);
+Factory.poll(refresh, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+.venv
+.git
+.factory
+**/__pycache__
+tests
+evals
+docs

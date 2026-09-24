@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runner Board · Agent Factory</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --line: #e6e8ec; --text: #1c2024; --muted: #6b7280; --faint: #9aa1ad;
+    --blue: #3b6cf6; --green: #16a34a; --amber: #d97706; --red: #dc2626; --violet: #7c3aed;
+    --software: #3b6cf6; --data: #0d9488; --ai: #c026d3;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13.5px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  a { color: var(--blue); text-decoration: none; }
+  button { font: inherit; cursor: pointer; }
+
+  header { position: sticky; top: 0; z-index: 5; background: rgba(246,247,249,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .bar { display: flex; align-items: center; gap: 14px; padding: 14px 24px 10px; }
+  h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .sub { color: var(--muted); }
+  .spacer { flex: 1; }
+  .filters { display: flex; gap: 8px; padding: 0 24px 12px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; background: #eceef2; border-radius: 8px; padding: 2px; }
+  .seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 6px; color: var(--muted); }
+  .seg button.on { background: #fff; color: var(--text); box-shadow: var(--shadow); }
+  .seg button .n { color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .pill { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 10px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .pill.on { border-color: var(--c); color: var(--c); background: color-mix(in srgb, var(--c) 7%, #fff); }
+  .swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+  .demo { font: 11px var(--mono); color: var(--violet); background: #f3edff; padding: 3px 8px; border-radius: 999px; }
+
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(260px, 1fr); gap: 14px; padding: 18px 24px 40px; overflow-x: auto; align-items: start; }
+  .col { background: #eef0f3; border-radius: 12px; padding: 10px; min-height: 140px; }
+  .col.attention { background: #fff7ed; outline: 1px solid #fed7aa; }
+  .col-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; font-weight: 600; }
+  .col-head .count { color: var(--muted); font-weight: 500; background: rgba(0,0,0,.05); border-radius: 999px; padding: 0 7px; font-size: 12px; }
+  .col-head .hint { margin-left: auto; color: var(--faint); font-weight: 400; font-size: 12px; }
+  .col.attention .col-head { color: #9a3412; }
+  .col .none { color: var(--faint); text-align: center; padding: 22px 0; font-size: 12.5px; }
+
+  .card { background: var(--card); border-radius: 10px; box-shadow: var(--shadow); padding: 12px; margin-bottom: 10px; cursor: pointer; border: 1px solid transparent; transition: transform .12s, box-shadow .12s; }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(16,24,40,.1); }
+  .card.sel { border-color: var(--blue); }
+  .card .top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .kind { font-size: 11px; font-weight: 600; color: var(--c); background: color-mix(in srgb, var(--c) 10%, #fff); border-radius: 5px; padding: 1px 7px; text-transform: uppercase; letter-spacing: .04em; }
+  .elapsed { margin-left: auto; font: 12px var(--mono); color: var(--muted); }
+  .card .title { font-weight: 560; line-height: 1.35; }
+  .dots { display: flex; gap: 4px; margin: 10px 0 8px; }
+  .dots i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  .dots i.done { background: var(--green); } .dots i.running { background: linear-gradient(90deg, var(--blue) 40%, #a9c0ff 50%, var(--blue) 60%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+  .dots i.escalated { background: var(--amber); } .dots i.failed { background: var(--red); }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+  .latest { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .latest.warn { color: var(--amber); }
+  .foot { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--faint); }
+  .badge { font-size: 11px; border-radius: 5px; padding: 1px 6px; background: #f1f5f9; color: var(--muted); }
+  .badge.retry { background: #fff7ed; color: var(--amber); }
+  .reason { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin-top: 8px; font-size: 12px; color: #9a3412; background: #fff7ed; border-radius: 6px; padding: 6px 8px; }
+
+  /* drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(15,23,42,.18); opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 9; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 94vw); background: #fff; z-index: 10; box-shadow: -12px 0 40px rgba(15,23,42,.14); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+  body.open .scrim { opacity: 1; pointer-events: auto; } body.open .drawer { transform: none; }
+  .d-head { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  .d-head h2 { margin: 6px 0 8px; font-size: 18px; }
+  .d-head .close { float: right; border: 0; background: #f1f5f9; border-radius: 8px; width: 30px; height: 30px; }
+  .meta { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
+  .d-body { overflow: auto; padding: 16px 22px 30px; flex: 1; }
+  .cmd { display: flex; gap: 8px; align-items: center; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 8px 10px; font: 12px var(--mono); margin: 12px 0 4px; }
+  .cmd span { flex: 1; overflow: auto; white-space: nowrap; }
+  .cmd button { border: 0; background: #1e293b; color: #e2e8f0; border-radius: 6px; padding: 3px 9px; }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin: 22px 0 10px; }
+  .steps { position: relative; margin-left: 8px; }
+  .step { position: relative; padding: 0 0 16px 24px; border-left: 2px solid var(--line); }
+  .step:last-child { border-left-color: transparent; }
+  .step::before { content: ""; position: absolute; left: -7px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid var(--line); }
+  .step.done::before { background: var(--green); border-color: var(--green); }
+  .step.running::before { border-color: var(--blue); box-shadow: 0 0 0 4px #dbe6ff; }
+  .step.escalated::before { background: var(--amber); border-color: var(--amber); } .step.failed::before { background: var(--red); border-color: var(--red); }
+  .step .row { display: flex; gap: 8px; } .step b { text-transform: capitalize; }
+  .step .t { margin-left: auto; font: 12px var(--mono); color: var(--muted); }
+  .step .note { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .step .ev { font: 11.5px/1.6 var(--mono); color: var(--muted); margin-top: 4px; }
+  .step .ev .warn { color: var(--amber); }
+  details { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+  summary { padding: 9px 12px; cursor: pointer; font-weight: 550; }
+  .doc { padding: 0 14px 12px; }
+  .doc h1 { font-size: 15px; } .doc h2 { font-size: 13px; color: var(--muted); }
+  .doc pre { background: #f8fafc; border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; font: 12px var(--mono); }
+  .doc code { font: 12px var(--mono); background: #f1f5f9; padding: 1px 4px; border-radius: 4px; } .doc pre code { background: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Runners</h1><span class="sub" id="summary"></span>
+    <div class="spacer"></div><span class="demo" id="demo" hidden>demo data</span>
+  </div>
+  <div class="filters">
+    <div class="seg" id="views"></div>
+    <span style="width:8px"></span>
+    <div id="kinds" style="display:flex;gap:6px"></div>
+  </div>
+</header>
+<div class="board" id="board"></div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer"></aside>
+
+<script src="/static/common.js" onerror="this.onerror=null;this.src='common.js'"></script>
+<script>
+const ui = { runs: [], view: "all", kinds: new Set(), open: null };
+const COLUMNS = [
+  { key: "attention", name: "Needs you", hint: "escalated or failed", match: needsHuman },
+  { key: "planning", name: "Planning", match: (r) => isActive(r) && ["prepare", "plan"].includes(r.step) },
+  { key: "building", name: "Building", match: (r) => isActive(r) && r.step === "implement" },
+  { key: "reviewing", name: "Reviewing", match: (r) => isActive(r) && r.step === "review" },
+  { key: "shipping", name: "Shipping", match: (r) => isActive(r) && ["ship", "learn"].includes(r.step) },
+  { key: "done", name: "Shipped", match: (r) => r.status === "done" },
+];
+const VIEWS = { all: ["All", () => true], attention: ["Needs you", needsHuman], active: ["Active", isActive], done: ["Shipped", (r) => r.status === "done"] };
+
+const kindColor = (kind) => `var(--${kind ?? "software"})`;
+const latest = (run) => run.events?.filter((e) => e.level !== "debug").at(-1);
+
+function card(run, detail) {
+  const stuck = run.steps.find((s) => s.status === "escalated" || s.status === "failed");
+  const tries = attempt(run) ?? (detail?.events.filter((e) => e.message.startsWith("implementing")).length || null);
+  const last = detail && latest(detail);
+  return `
+    <div class="card ${ui.open === run.id ? "sel" : ""}" data-id="${run.id}">
+      <div class="top">
+        ${run.kind ? `<span class="kind" style="--c:${kindColor(run.kind)}">${run.kind}</span>` : `<span class="kind" style="--c:var(--faint)">planning</span>`}
+        <span class="elapsed">${duration(runDuration(run))}</span>
+      </div>
+      <div class="title">${esc(run.title)}</div>
+      <div class="dots">${run.steps.map((s) => `<i class="${s.status}" title="${s.name}: ${s.status}"></i>`).join("")}</div>
+      ${stuck ? `<div class="reason">${esc(stuck.note)}</div>` : last ? `<div class="latest ${last.level}">${esc(last.message)}</div>` : ""}
+      <div class="foot">
+        <span>${ago(run.created_at)}</span>
+        ${tries && tries > 1 ? `<span class="badge retry">attempt ${tries}/3</span>` : ""}
+        ${run.size ? `<span class="badge">${run.size}</span>` : ""}
+        <span class="spacer"></span>
+        ${run.pr_url ? `<a href="${esc(run.pr_url)}" target="_blank" onclick="event.stopPropagation()">PR ↗</a>` : ""}
+      </div>
+    </div>`;
+}
+
+async function renderBoard() {
+  ui.runs = await Factory.runs();
+  document.getElementById("demo").hidden = !Factory.demo;
+  const details = Object.fromEntries(await Promise.all(ui.runs.filter((r) => r.status !== "done").map(async (r) => [r.id, await Factory.run(r.id)])));
+  const s = stats(ui.runs);
+  document.getElementById("summary").textContent =
+    `${s.active} running · ${s.needsHuman} waiting on you · ${s.shipped} shipped · ${s.successRate ?? "–"}% success`;
+
+  document.getElementById("views").innerHTML = Object.entries(VIEWS).map(([key, [name, match]]) =>
+    `<button data-view="${key}" class="${ui.view === key ? "on" : ""}">${name}<span class="n">${ui.runs.filter(match).length}</span></button>`).join("");
+  document.getElementById("kinds").innerHTML = ["software", "data", "ai"].map((k) =>
+    `<button class="pill ${ui.kinds.has(k) ? "on" : ""}" data-kind="${k}" style="--c:${kindColor(k)}"><span class="swatch"></span>${k}</button>`).join("");
+
+  const visible = ui.runs.filter(VIEWS[ui.view][1]).filter((r) => !ui.kinds.size || ui.kinds.has(r.kind));
+  document.getElementById("board").innerHTML = COLUMNS.map((col) => {
+    const runs = visible.filter(col.match);
+    if (col.key === "attention" && !runs.length && ui.view !== "attention") return "";
+    return `<div class="col ${col.key === "attention" ? "attention" : ""}">
+      <div class="col-head">${col.name}<span class="count">${runs.length}</span>${col.hint ? `<span class="hint">${col.hint}</span>` : ""}</div>
+      ${runs.map((r) => card(r, details[r.id])).join("") || `<div class="none">Nothing here</div>`}
+    </div>`;
+  }).join("");
+  if (ui.open) renderDrawer(await Factory.run(ui.open));
+}
+
+function renderDrawer(run) {
+  if (!run) return close();
+  const drawer = document.getElementById("drawer");
+  const scroll = drawer.querySelector(".d-body")?.scrollTop ?? 0;
+  const openDocs = new Set([...drawer.querySelectorAll("details[open]")].map((d) => d.dataset.name));
+  const stuck = run.steps.find((s) => s.status === "escalated" || s.status === "failed");
+  const command = stuck ? `factory resume ${run.id} --from ${stuck.name}` : `factory show ${run.id}`;
+  drawer.innerHTML = `
+    <div class="d-head">
+      <button class="close" id="close" title="Close (Esc)">✕</button>
+      ${run.kind ? `<span class="kind" style="--c:${kindColor(run.kind)}">${run.kind} · ${run.size}</span>` : ""}
+      <h2>${esc(run.title)}</h2>
+      <div class="meta">
+        <span>${run.status}</span><span>${duration(runDuration(run))}</span><span>started ${ago(run.created_at)}</span>
+        ${run.url ? `<a href="${esc(run.url)}" target="_blank">${run.source} ↗</a>` : `<span>${run.source}</span>`}
+        ${run.pr_url ? `<a href="${esc(run.pr_url)}" target="_blank">pull request ↗</a>` : ""}
+      </div>
+      <div class="cmd"><span>$ ${command}</span><button id="copy">Copy</button></div>
+    </div>
+    <div class="d-body">
+      <h3>Progress</h3>
+      <div class="steps">${run.steps.map((s) => {
+        const events = run.events.filter((e) => e.step === s.name && e.message !== "started" && !e.message.startsWith(s.status));
+        return `<div class="step ${s.status}">
+          <div class="row"><b>${s.name}</b><span class="note">${s.status === "pending" ? "" : s.status}</span><span class="t">${s.started_at ? duration(stepDuration(s)) : ""}</span></div>
+          ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
+          ${events.length ? `<div class="ev">${events.slice(-6).map((e) => `<div class="${e.level}">${clock(e.at)} · ${esc(e.message)}</div>`).join("")}</div>` : ""}
+        </div>`;
+      }).join("")}</div>
+      <h3>Artifacts</h3>
+      ${artifactNames(run).map((name) => [name, run.artifacts[name]]).map(([name, text]) => `
+        <details data-name="${name}" ${openDocs.has(name) || (!openDocs.size && name === focusArtifact(run)) ? "open" : ""}>
+          <summary>${name}</summary><div class="doc">${md(text)}</div>
+        </details>`).join("") || `<div class="sub">No artifacts yet.</div>`}
+    </div>`;
+  drawer.querySelector(".d-body").scrollTop = scroll;
+  drawer.querySelector("#close").onclick = close;
+  drawer.querySelector("#copy").onclick = (e) => copy(command, e.target);
+}
+
+async function open(id) {
+  ui.open = id; document.body.classList.add("open");
+  renderDrawer(await Factory.run(id));
+  document.querySelectorAll(".card").forEach((c) => c.classList.toggle("sel", c.dataset.id === id));
+}
+function close() {
+  ui.open = null; document.body.classList.remove("open");
+  document.querySelectorAll(".card.sel").forEach((c) => c.classList.remove("sel"));
+}
+
+document.getElementById("board").onclick = (e) => { const c = e.target.closest(".card"); if (c) open(c.dataset.id); };
+document.getElementById("views").onclick = (e) => { const b = e.target.closest("[data-view]"); if (b) { ui.view = b.dataset.view; renderBoard(); } };
+document.getElementById("kinds").onclick = (e) => {
+  const b = e.target.closest("[data-kind]"); if (!b) return;
+  ui.kinds.has(b.dataset.kind) ? ui.kinds.delete(b.dataset.kind) : ui.kinds.add(b.dataset.kind); renderBoard();
+};
+document.getElementById("scrim").onclick = close;
+document.addEventListener("keydown", (e) => e.key === "Escape" && close());
+
+Factory.poll(renderBoard, 2500);
+</script>
+</body>
+</html>
